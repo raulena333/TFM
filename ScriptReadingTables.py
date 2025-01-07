@@ -18,6 +18,7 @@ pylab.rcParams.update(params)  # Apply changes
 data = np.loadtxt('OutputPosition.phsp')
 fileteredData = data[data[:, 7] == 2212]
 finalDirectionCosineX, finalDirectionCosineY, finalEnergy, isSign, initialEnergy, initialDirectionCosineZ = fileteredData[:, [3,4,5,8,10,16]].T
+numberOfProtons = len(finalEnergy)
 
 # Calculate initial and final Angles for tables, using isSign to determine whether its + or - 
 # For calculating the final direction along de Z-axis, we will use the Xcosine and Ycosine directions using the equaiton : ±\sqrt(1-d_x^2-d_y^2)
@@ -36,11 +37,6 @@ initialAngles = []
 for directionZ in initialDirectionCosineZ:
     angle = np.arccos(directionZ)
     initialAngles.append(np.degrees(angle))
-    
-# Calculate the probabilities of ending in a final energy and final angle
-numberOfProtons = len(finalAngles)
-counts, xedges, yedges = np.histogram2d(finalAngles, finalEnergy, bins=50)
-probabilities = counts / numberOfProtons
 
 # Plot results for visulization as histograms
 fig, axs = plt.subplots(2, 2, figsize=(10, 8.33))
@@ -68,22 +64,27 @@ axs[1, 1].set_title('Final Angles distribution')
 plt.tight_layout()
 plt.show()
 
+# Calculate the probabilities for a given  final energy and  final angle
+numberOfBins = 50
+hist1, xedges1, yedges1 = np.histogram2d(finalAngles, finalEnergy, bins=numberOfBins)
+finalProbabilities = hist1 / np.sum(hist1)
+hist2, xedges2, yedges2 = np.histogram2d(initialAngles, initialEnergy, bins=numberOfBins)
+initialProbabilities = hist2 / np.sum(hist2)
+
 # Plot results for visulization as 2D histogram as heatmaps
 fig1, axs1 = plt.subplots(1, 2, figsize=(16, 6))
 
-h1 = axs1[0].hist2d(initialAngles, initialEnergy, bins=50, cmap='Blues')
-fig1.colorbar(h1[3], ax=axs1[0], label='Counts')
+h1 = axs1[0].pcolormesh(xedges2, yedges2, initialProbabilities.T, cmap='Blues', shading='auto')
+fig1.colorbar(h1, ax=axs1[0], label='Probability') 
 axs1[0].set_xlabel('Angle (deg)')
 axs1[0].set_ylabel('Energy (MeV)')
-axs1[0].set_title('2D Histogram of Initial Energy vs Initial Angle')
-#axs1[0].set_xlim(179, 180)  
+axs1[0].set_title('2D Histogram of Initial Energy vs Initial Angle (Probabilities)')
 
-h2 = axs1[1].hist2d(probabilities.T, cmap='Reds', origin='lower', aspect='auto')
-fig1.colorbar(h2[3], ax=axs1[1], label='Probability')
+h2 = axs1[1].pcolormesh(xedges1, yedges1, finalProbabilities.T, cmap='Reds', shading='auto')
+fig1.colorbar(h2, ax=axs1[1], label='Probability')
 axs1[1].set_xlabel('Angle (deg)')
 axs1[1].set_ylabel('Energy (MeV)')
-axs1[1].set_title('2D Histogram of Final Energy vs Final Angle')
-#axs1[1].set_xlim(0, 10)  
+axs1[1].set_title('2D Histogram of Final Energy vs Final Angle (Probabilities)')
 
 plt.tight_layout()
 plt.show()
