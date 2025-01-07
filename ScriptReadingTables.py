@@ -37,10 +37,10 @@ for directionZ in initialDirectionCosineZ:
     angle = np.arccos(directionZ)
     initialAngles.append(np.degrees(angle))
     
-# 
-
-# Combine original data with the angles columns
-newData = np.column_stack((initialEnergy, initialAngles, finalEnergy, finalAngles))
+# Calculate the probabilities of ending in a final energy and final angle
+numberOfProtons = len(finalAngles)
+counts, xedges, yedges = np.histogram2d(finalAngles, finalEnergy, bins=50)
+probabilities = counts / numberOfProtons
 
 # Plot results for visulization as histograms
 fig, axs = plt.subplots(2, 2, figsize=(10, 8.33))
@@ -78,8 +78,8 @@ axs1[0].set_ylabel('Energy (MeV)')
 axs1[0].set_title('2D Histogram of Initial Energy vs Initial Angle')
 #axs1[0].set_xlim(179, 180)  
 
-h2 = axs1[1].hist2d(finalAngles, finalEnergy, bins=50, cmap='Reds')
-fig1.colorbar(h2[3], ax=axs1[1], label='Counts')
+h2 = axs1[1].hist2d(probabilities.T, cmap='Reds', origin='lower', aspect='auto')
+fig1.colorbar(h2[3], ax=axs1[1], label='Probability')
 axs1[1].set_xlabel('Angle (deg)')
 axs1[1].set_ylabel('Energy (MeV)')
 axs1[1].set_title('2D Histogram of Final Energy vs Final Angle')
@@ -97,7 +97,7 @@ plt.show()
 # plt.show()
 
 # Interactive 3D plot of Initial Angle, Final Angle, and Final Energy
-fig = px.scatter_3d(x=initialAngles, y=finalAngles, z=finalEnergy, 
-                    labels={'x': 'Initial Angle (degrees)', 'y': 'Final Angles', 'z': 'Final Energy'},
-                    title='3D Scatter Plot of Energy vs Angles')
-fig.show()
+# fig = px.scatter_3d(x=initialAngles, y=finalAngles, z=finalEnergy, 
+#                     labels={'x': 'Initial Angle (degrees)', 'y': 'Final Angles', 'z': 'Final Energy'},
+#                     title='3D Scatter Plot of Energy vs Angles')
+# fig.show()
