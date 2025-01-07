@@ -59,3 +59,21 @@ axs[1, 1].set_title('Final Angles distribution')
 
 plt.tight_layout()
 plt.show()
+
+# Plot results for visulization as 2D histogram
+fig1, axs1 = plt.subplots(1, 2, figsize=(16, 6))
+
+h1 = axs1[0].hist2d(initialAngles, initialEnergy, bins=50, cmap='Blues')
+fig1.colorbar(h1[3], ax=axs1[0], label='Counts')
+axs1[0].set_xlabel('Angle (deg)')
+axs1[0].set_ylabel('Energy (MeV)')
+axs1[0].set_title('2D Histogram of Initial Energy vs Initial Angle')
+
+h2 = axs1[1].hist2d(finalAngles, finalEnergy, bins=50, cmap='Reds')
+fig1.colorbar(h2[3], ax=axs1[1], label='Counts')
+axs1[1].set_xlabel('Angle (deg)')
+axs1[1].set_ylabel('Energy (MeV)')
+axs1[1].set_title('2D Histogram of Final Energy vs Final Angle')
+
+plt.tight_layout()
+plt.show()
