@@ -1,0 +1,98 @@
+####################################################
+# Geometry 
+####################################################
+# World:
+s:Ge/World/Type = "TsBox"
+s:Ge/World/Material = "Vacuum"
+b:Ge/World/Invisible = "TRUE"
+
+# TestBox:
+s:Ge/myBox/Type = "TsBox"
+s:Ge/myBox/Parent  = "World"
+s:Ge/myBox/Material = "G4_WATER"
+d:Ge/myBox/HLX = 10. cm
+d:Ge/myBox/HLY = 10. cm
+d:Ge/myBox/HLZ = 10. cm
+d:Ge/myBox/TransX = 0. m
+d:Ge/myBox/TransY = 0. m
+d:Ge/myBox/TransZ = -1. m
+d:Ge/myBox/RotX = 0. deg
+d:Ge/myBox/RotY = 0. deg
+d:Ge/myBox/RotZ = 0. deg
+
+# BeamPosition:
+s:Ge/BeamPosition/Type = "Group"
+s:Ge/BeamPosition/Parent  = "World"
+d:Ge/BeamPosition/TransX = 0. m
+d:Ge/BeamPosition/TransY = 0. m
+d:Ge/BeamPosition/TransZ = 1. m
+
+
+####################################################
+# Scoring
+####################################################
+#Energy
+#s:Sc/EnergyDepositedAtBox/Quantity = "EnergyDeposit"
+#s:Sc/EnergyDepositedAtBox/Component = "myBox"
+#s:Sc/EnergyDepositedAtBox/OutputType = "CSV"
+#s:Sc/EnergyDepositedAtBox/OutputFile = "OutputEnergyDeposited"
+#s:Sc/EnergyDepositedAtBox/IfOutputFileAlreadyExists = "Overwrite"
+#PhaseSpace
+s:Sc/MyScorer/Quantity = "PhaseSpace"
+b:Sc/MyScorer/OutputToConsole = "True"
+s:Sc/MyScorer/Surface = "myBox/ZMinusSurface"
+s:Sc/MyScorer/OutputType = "ASCII"
+s:Sc/MyScorer/OutputFile = "OutputPosition"
+s:Sc/MyScorer/IfOutputFileAlreadyExists = "Overwrite"
+#b:Sc/MyScorer/IncludeTOPASTime = "True" # Time used by TimeFeatures for this history
+#b:Sc/MyScorer/IncludeTimeOfFlight = "True" # Time of# Flight of this particle from start of history to scoring plane
+#b:Sc/MyScorer/IncludeRunID = "True#"
+#b:Sc/MyScorer/IncludeEventID = "True"
+#b:Sc/MyScorer/IncludeTrackID = "True"
+#b:Sc/MyScorer/IncludeParentID = "True" # Track ID of parent particle
+#b:Sc/MyScorer/IncludeCharge = "True"
+#b:Sc/MyScorer/IncludeCreatorProcess = "True"
+#b:Sc/MyScorer/IncludeVertexInfo = "True" # Initial KE, Position and Momentum
+#b:Sc/MyScorer/IncludeSeed = "True"
+
+
+####################################################
+# Beam Source
+####################################################
+s:So/MySource/Type = "Beam" 
+s:So/MySource/Component = "BeamPosition"
+s:So/MySource/BeamParticle = "proton"
+s:So/MySource/BeamPositionDistribution = "Gaussian"
+s:So/MySource/BeamPositionCutoffShape = "Ellipse"
+d:So/MySource/BeamPositionCutoffX = 10. cm
+d:So/MySource/BeamPositionCutoffY = 10. cm
+d:So/MySource/BeamPositionSpreadX = 0.65 cm
+d:So/MySource/BeamPositionSpreadY = 0.65 cm
+s:So/MySource/BeamAngularDistribution = "Gaussian" 
+d:So/MySource/BeamAngularCutoffX = 90. deg
+d:So/MySource/BeamAngularCutoffY = 90. deg
+d:So/MySource/BeamAngularSpreadX = 0.0032 rad
+d:So/MySource/BeamAngularSpreadY = 0.0032 rad
+s:So/MySource/BeamEnergySpectrumType = "Discrete"
+dv:So/MySource/BeamEnergySpectrumValues = 1 200.0 MeV
+uv:So/MySource/BeamEnergySpectrumWeights = 1 1.0
+i:So/MySource/NumberOfHistoriesInRun = 100
+#i:So/MySource/NumberOfHistoriesInRandomJob = 0
+
+
+####################################################
+# Visualization
+####################################################
+s:Gr/MyOGL/Type = "OpenGL"
+i:Gr/MyOGL/WidnowSizeX = 600
+i:Gr/MyOGL/WindowSizeY = 600
+d:Gr/MyOGL/Theta = 65 deg
+d:Gr/MyOGL/Phi = 20 deg
+#s:Gr/MyOGL/Projection = "Perspective"
+#d:Gr/MyOGL/PerspectiveAngle = 60 deg
+b:Gr/Enable = "True"
+i:Gr/Verbosity = 2
+s:Gr/RefreshEvery = "Run"
+
+sv:Ph/Default/Modules = 1 "g4em-standard_opt0"
+b:Ts/PauseBeforeQuit = "True"
