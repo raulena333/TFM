@@ -44,15 +44,15 @@ s:Sc/MyScorer/Surface = "myBox/ZMinusSurface"
 s:Sc/MyScorer/OutputType = "ASCII"
 s:Sc/MyScorer/OutputFile = "OutputPosition"
 s:Sc/MyScorer/IfOutputFileAlreadyExists = "Overwrite"
-#b:Sc/MyScorer/IncludeTOPASTime = "True" # Time used by TimeFeatures for this history
-#b:Sc/MyScorer/IncludeTimeOfFlight = "True" # Time of# Flight of this particle from start of history to scoring plane
+#b:Sc/MyScorer/IncludeTOPASTime = "True" 
+#b:Sc/MyScorer/IncludeTimeOfFlight = "True"
 #b:Sc/MyScorer/IncludeRunID = "True#"
 #b:Sc/MyScorer/IncludeEventID = "True"
 #b:Sc/MyScorer/IncludeTrackID = "True"
-#b:Sc/MyScorer/IncludeParentID = "True" # Track ID of parent particle
+#b:Sc/MyScorer/IncludeParentID = "True"
 #b:Sc/MyScorer/IncludeCharge = "True"
 #b:Sc/MyScorer/IncludeCreatorProcess = "True"
-#b:Sc/MyScorer/IncludeVertexInfo = "True" # Initial KE, Position and Momentum
+b:Sc/MyScorer/IncludeVertexInfo = "True" # Initial KE, Position and Momentum
 #b:Sc/MyScorer/IncludeSeed = "True"
 
 
@@ -76,7 +76,7 @@ d:So/MySource/BeamAngularSpreadY = 0.0032 rad
 s:So/MySource/BeamEnergySpectrumType = "Discrete"
 dv:So/MySource/BeamEnergySpectrumValues = 1 200.0 MeV
 uv:So/MySource/BeamEnergySpectrumWeights = 1 1.0
-i:So/MySource/NumberOfHistoriesInRun = 100
+i:So/MySource/NumberOfHistoriesInRun = 10
 #i:So/MySource/NumberOfHistoriesInRandomJob = 0
 
 
