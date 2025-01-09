@@ -279,6 +279,7 @@ s:Sc/MyScorer10/IfOutputFileAlreadyExists = "Overwrite"
 b:Sc/MyScorer10/IncludeVertexInfo = "True"
 sv:Sc/MyScorer10/OnlyIncludeParticlesNamed = 1 "Proton"
 
+
 ####################################################
 # Beam Source
 ####################################################
@@ -297,11 +298,10 @@ s:So/MySource/BeamAngularDistribution = "None"
 #d:So/MySource/BeamAngularSpreadX = 0.0032 rad
 #d:So/MySource/BeamAngularSpreadY = 0.0032 rad
 s:So/MySource/BeamEnergySpectrumType = "Discrete"
-dv:So/MySource/BeamEnergySpectrumValues = 1 110.0 MeV
+dv:So/MySource/BeamEnergySpectrumValues = 1 300 MeV
 uv:So/MySource/BeamEnergySpectrumWeights = 1 1.0
 i:So/MySource/NumberOfHistoriesInRun = 500000
 #i:So/MySource/NumberOfHistoriesInRandomJob = 0
-
 
 
 ####################################################
@@ -318,7 +318,7 @@ d:Gr/MyOGL/Phi = 20 deg
 b:Gr/Enable = "True"
 i:Gr/Verbosity = 2
 s:Gr/RefreshEvery = "Run"
-b:Gr/MyOGL/CopyOpenGLToPDF = "TRUE"
+#b:Gr/MyOGL/CopyOpenGLToPDF = "TRUE"
 
 sv:Ph/Default/Modules = 1 "g4em-standard_opt0"
-b:Ts/PauseBeforeQuit = "True"
+#b:Ts/PauseBeforeQuit = "True"
