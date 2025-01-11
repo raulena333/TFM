@@ -185,7 +185,7 @@ b:Sc/MyScorer1/Visualize = "True"
 s:Sc/MyScorer1/Surface = "subComponent1/ZMinusSurface"
 s:Sc/MyScorer1/OutputType = "ASCII"
 s:Sc/MyScorer1/OutputFile = "OutputPositionPicoBragg1"
-s:Sc/MyScorer1/IfOutputFileAlreadyExists = "Overwrite"
+s:Sc/MyScorer1/IfOutputFileAlreadyExists = "Increment"
 b:Sc/MyScorer1/IncludeVertexInfo = "True"
 sv:Sc/MyScorer1/OnlyIncludeParticlesNamed = 1 "Proton"
 
@@ -195,7 +195,7 @@ b:Sc/MyScorer2/Visualize = "True"
 s:Sc/MyScorer2/Surface = "subComponent2/ZMinusSurface"
 s:Sc/MyScorer2/OutputType = "ASCII"
 s:Sc/MyScorer2/OutputFile = "OutputPositionPicoBragg2"
-s:Sc/MyScorer2/IfOutputFileAlreadyExists = "Overwrite"
+s:Sc/MyScorer2/IfOutputFileAlreadyExists = "Increment"
 b:Sc/MyScorer2/IncludeVertexInfo = "True"
 sv:Sc/MyScorer2/OnlyIncludeParticlesNamed = 1 "Proton"
 
@@ -205,7 +205,7 @@ b:Sc/MyScorer3/Visualize = "True"
 s:Sc/MyScorer3/Surface = "subComponent3/ZMinusSurface"
 s:Sc/MyScorer3/OutputType = "ASCII"
 s:Sc/MyScorer3/OutputFile = "OutputPositionPicoBragg3"
-s:Sc/MyScorer3/IfOutputFileAlreadyExists = "Overwrite"
+s:Sc/MyScorer3/IfOutputFileAlreadyExists = "Increment"
 b:Sc/MyScorer3/IncludeVertexInfo = "True"
 sv:Sc/MyScorer3/OnlyIncludeParticlesNamed = 1 "Proton"
 
@@ -215,7 +215,7 @@ b:Sc/MyScorer4/Visualize = "True"
 s:Sc/MyScorer4/Surface = "subComponent4/ZMinusSurface"
 s:Sc/MyScorer4/OutputType = "ASCII"
 s:Sc/MyScorer4/OutputFile = "OutputPositionPicoBragg4"
-s:Sc/MyScorer4/IfOutputFileAlreadyExists = "Overwrite"
+s:Sc/MyScorer4/IfOutputFileAlreadyExists = "Increment"
 b:Sc/MyScorer4/IncludeVertexInfo = "True"
 sv:Sc/MyScorer4/OnlyIncludeParticlesNamed = 1 "Proton"
 
@@ -225,7 +225,7 @@ b:Sc/MyScorer5/Visualize = "True"
 s:Sc/MyScorer5/Surface = "subComponent5/ZMinusSurface"
 s:Sc/MyScorer5/OutputType = "ASCII"
 s:Sc/MyScorer5/OutputFile = "OutputPositionPicoBragg5"
-s:Sc/MyScorer5/IfOutputFileAlreadyExists = "Overwrite"
+s:Sc/MyScorer5/IfOutputFileAlreadyExists = "Increment"
 b:Sc/MyScorer5/IncludeVertexInfo = "True"
 sv:Sc/MyScorer5/OnlyIncludeParticlesNamed = 1 "Proton"
 
@@ -235,7 +235,7 @@ b:Sc/MyScorer6/Visualize = "True"
 s:Sc/MyScorer6/Surface = "subComponent6/ZMinusSurface"
 s:Sc/MyScorer6/OutputType = "ASCII"
 s:Sc/MyScorer6/OutputFile = "OutputPositionPicoBragg6"
-s:Sc/MyScorer6/IfOutputFileAlreadyExists = "Overwrite"
+s:Sc/MyScorer6/IfOutputFileAlreadyExists = "Increment"
 b:Sc/MyScorer6/IncludeVertexInfo = "True"
 sv:Sc/MyScorer6/OnlyIncludeParticlesNamed = 1 "Proton"
 
@@ -245,7 +245,7 @@ b:Sc/MyScorer7/Visualize = "True"
 s:Sc/MyScorer7/Surface = "subComponent7/ZMinusSurface"
 s:Sc/MyScorer7/OutputType = "ASCII"
 s:Sc/MyScorer7/OutputFile = "OutputPositionPicoBragg7"
-s:Sc/MyScorer7/IfOutputFileAlreadyExists = "Overwrite"
+s:Sc/MyScorer7/IfOutputFileAlreadyExists = "Increment"
 b:Sc/MyScorer7/IncludeVertexInfo = "True"
 sv:Sc/MyScorer7/OnlyIncludeParticlesNamed = 1 "Proton"
 
@@ -255,7 +255,7 @@ b:Sc/MyScorer8/Visualize = "True"
 s:Sc/MyScorer8/Surface = "subComponent8/ZMinusSurface"
 s:Sc/MyScorer8/OutputType = "ASCII"
 s:Sc/MyScorer8/OutputFile = "OutputPositionPicoBragg8"
-s:Sc/MyScorer8/IfOutputFileAlreadyExists = "Overwrite"
+s:Sc/MyScorer8/IfOutputFileAlreadyExists = "Increment"
 b:Sc/MyScorer8/IncludeVertexInfo = "True"
 sv:Sc/MyScorer8/OnlyIncludeParticlesNamed = 1 "Proton"
 
@@ -265,7 +265,7 @@ b:Sc/MyScorer9/Visualize = "True"
 s:Sc/MyScorer9/Surface = "subComponent9/ZMinusSurface"
 s:Sc/MyScorer9/OutputType = "ASCII"
 s:Sc/MyScorer9/OutputFile = "OutputPositionPicoBragg9"
-s:Sc/MyScorer9/IfOutputFileAlreadyExists = "Overwrite"
+s:Sc/MyScorer9/IfOutputFileAlreadyExists = "Increment"
 b:Sc/MyScorer9/IncludeVertexInfo = "True"
 sv:Sc/MyScorer9/OnlyIncludeParticlesNamed = 1 "Proton"
 
@@ -275,7 +275,7 @@ b:Sc/MyScorer10/Visualize = "True"
 s:Sc/MyScorer10/Surface = "subComponent10/ZMinusSurface"
 s:Sc/MyScorer10/OutputType = "ASCII"
 s:Sc/MyScorer10/OutputFile = "OutputPositionPicoBragg10"
-s:Sc/MyScorer10/IfOutputFileAlreadyExists = "Overwrite"
+s:Sc/MyScorer10/IfOutputFileAlreadyExists = "Increment"
 b:Sc/MyScorer10/IncludeVertexInfo = "True"
 sv:Sc/MyScorer10/OnlyIncludeParticlesNamed = 1 "Proton"
 
@@ -298,9 +298,9 @@ s:So/MySource/BeamAngularDistribution = "None"
 #d:So/MySource/BeamAngularSpreadX = 0.0032 rad
 #d:So/MySource/BeamAngularSpreadY = 0.0032 rad
 s:So/MySource/BeamEnergySpectrumType = "Discrete"
-dv:So/MySource/BeamEnergySpectrumValues = 1 300 MeV
+dv:So/MySource/BeamEnergySpectrumValues = 1 110.0 MeV
 uv:So/MySource/BeamEnergySpectrumWeights = 1 1.0
-i:So/MySource/NumberOfHistoriesInRun = 500000
+i:So/MySource/NumberOfHistoriesInRun = 50
 #i:So/MySource/NumberOfHistoriesInRandomJob = 0
 
 

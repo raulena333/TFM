@@ -24,7 +24,6 @@ d:Ge/myBox/RotZ = 0. deg
 #i:Ge/myBox/YBins = 2
 #i:Ge/myBox/ZBins = 2
 
-
 # BeamPosition:
 s:Ge/BeamPosition/Type = "Group"
 s:Ge/BeamPosition/Parent  = "World"
@@ -38,11 +37,12 @@ d:Ge/BeamPosition/TransZ = 1. m
 ####################################################
 # PhaseSpace
 s:Sc/MyScorer/Quantity = "PhaseSpace"
-i:Sc/MyScorer/ZBins = 10
+i:Sc/MyScorer/ZBins = 100
 b:Sc/MyScorer/OutputToConsole = "True"
 b:Sc/MyScorer/Visualize = "True"
-s:Sc/MyScorer/Surface = "myBox/ZMinusSurface"
-s:Sc/MyScorer/OutputType = "ASCII"
+#s:Sc/MyScorer/Surface = "myBox/ZMinusSurface"
+s:Sc/MyScorer/Component = "myBox"
+s:Sc/MyScorer/OutputType = "CSV"
 s:Sc/MyScorer/OutputFile = "OutputPositionPicoBragg"
 s:Sc/MyScorer/IfOutputFileAlreadyExists = "Overwrite"
 #b:Sc/MyScorer/IncludeTOPASTime = "True" 
@@ -78,7 +78,7 @@ s:So/MySource/BeamAngularDistribution = "None"
 s:So/MySource/BeamEnergySpectrumType = "Discrete"
 dv:So/MySource/BeamEnergySpectrumValues = 1 75.0 MeV
 uv:So/MySource/BeamEnergySpectrumWeights = 1 1.0
-i:So/MySource/NumberOfHistoriesInRun = 100000
+i:So/MySource/NumberOfHistoriesInRun = 1000
 #i:So/MySource/NumberOfHistoriesInRandomJob = 0
 
 
@@ -95,7 +95,7 @@ d:Gr/MyOGL/Phi = 20 deg
 b:Gr/Enable = "True"
 i:Gr/Verbosity = 2
 s:Gr/RefreshEvery = "Run"
-b:Gr/MyOGL/CopyOpenGLToPDF = "TRUE"
+#b:Gr/MyOGL/CopyOpenGLToPDF = "TRUE"
 
 sv:Ph/Default/Modules = 1 "g4em-standard_opt0"
 b:Ts/PauseBeforeQuit = "True"

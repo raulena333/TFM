@@ -14,6 +14,8 @@ params = {
 }
 pylab.rcParams.update(params)  # Apply changes
 
+material = ["Water"]
+density = [1.0]
 dataForEnergies = []
 dataForAngles = []
 numberOfBins = 50
@@ -78,7 +80,7 @@ for i in range(10, 1, -1):
         plt.tight_layout()
         # plt.show()
         savefileName = f'OuputPDFHistogramsPicoBragg{i}.pdf'
-        plt.savefig(savefileName)
+        #plt.savefig(savefileName)
         plt.close(fig) 
 
         # Calculate the probabilities for a given  final energy and  final angle
@@ -101,7 +103,7 @@ for i in range(10, 1, -1):
             plt.tight_layout()
             # plt.show()
             savefileName = f'OuputPDFHistograms2DPicoBraggInitial.pdf'
-            plt.savefig(savefileName)
+            #plt.savefig(savefileName)
             plt.close(fig1)
             
         fig2, axs2 = plt.subplots(figsize=(8, 6))
@@ -115,7 +117,7 @@ for i in range(10, 1, -1):
         plt.tight_layout()
         #plt.show()
         savefileName = f'OuputPDFHistograms2DPicoBragg{i}.pdf'
-        plt.savefig(savefileName)
+        #plt.savefig(savefileName)
         plt.close(fig2)
             
     except Exception as e:
@@ -123,19 +125,14 @@ for i in range(10, 1, -1):
 
 
 
+resultsForEachMaterial = {}
+# Create a key and a dictionary for initial Energy and material
+key = (initialEnergy.mean(), material[0], density[0]) 
+resultsForEachMaterial[key] = finalProbabilities
 
-
-
-# Violin plot to compare initial and final angles
-# plt.figure(figsize=(8, 6))
-# sns.violinplot(data=[initialAngles, finalAngles], inner="point", palette="muted")
-# plt.xticks([0, 1], ['Initial Angles', 'Final Angles'])
-# plt.ylabel('Angle (degrees)')
-# plt.title('Comparison of Initial and Final Angles')
-# plt.show()
-
-# Interactive 3D plot of Initial Angle, Final Angle, and Final Energy
-# fig = px.scatter_3d(x=initialAngles, y=finalAngles, z=finalEnergy, 
-#                     labels={'x': 'Initial Angle (degrees)', 'y': 'Final Angles', 'z': 'Final Energy'},
-#                     title='3D Scatter Plot of Energy vs Angles')
-# fig.show()
+header = f"InitialEnergy: {initialEnergy.mean()}, Material: {material[0]}, Density: {density[0]} g/cm^3"
+np.savez(
+    'finalProbabilityTableFoMaterial.npz',
+    header=header, 
+    probabilities=finalProbabilities 
+)
