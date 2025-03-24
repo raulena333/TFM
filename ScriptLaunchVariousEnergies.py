@@ -1,7 +1,8 @@
 import re
 import subprocess
+import argparse
 
-def modifyEnergyMaterial(filePath, newEnergy, newMaterial, newDensity):
+def modifyBeamEnergy(filePath, newEnergy):
     """
     Modify the beam energy in a TOPAS input file and save it with the same name.
 
@@ -50,35 +51,55 @@ def runTopas(filePath, dataPath):
 
     Parameters:
     - filePath (str): Path to the TOPAS input file.
+    - dataPath (str): Path to the TOPAS G4 data.
     """
     try:
-        updateData = subprocess.run([f'export TOPAS_G4_DATA_DIR=+{dataPath}'], shell = True)
-        result = subprocess.run([f'~/topas/bin/topas {filePath}'], shell = True)
+        result = subprocess.run(f'export TOPAS_G4_DATA_DIR={dataPath} && ~raul/topas/bin/topas {filePath}', 
+                        text=True, shell=True)
         if result == 0:
-            print("Simulation haev started succesfully ")
+            print("Data loaded and simulation have started succesfully ")
             
     except FileNotFoundError:
         print("TOPAS executable not found. Make sure TOPAS is installed and in your PATH.")
 
 if __name__ == "__main__":
-    # Input parameters
-    numberOfProtons = 50
-    dataPath = '/home/Raul/G4Data/'
-    voxelPhaseFile = "MyVoxelPhaseSpaceVR.txt"
-    newEnergies = [110.0]
-    newDensities = [1.0]
-    newMaterials = ["Water"]
+    # Argument parser
+    parser = argparse.ArgumentParser(description="Choose simulation mode.")
+    parser.add_argument("--mode", choices=["one", "various"], default="various", help="Select the mode to run the script.")
+    args = parser.parse_args()
 
-    # Create the dictionary for each material and density
-    materials_dict = {material: {"density": density} for material, density in zip(newMaterials, newDensities)}
-    print(materials_dict)
-    #modifyInputParameters(voxelPhaseFile,numberOfProtons)
-    
-    for energy in newEnergies:   
-        # Call the function to modify the beam energy
-        modifyBeamEnergy(voxelPhaseFile, energy)  
-        # Call the function to launch the simulation via terminal shell
-        #runTopas(voxelPhaseFile, dataPath)
-        print(f'Simulation for energy {energy} finished succesfully')
-        
+    numberOfProtons = 1000
+    dataPath = '~raul/G4Data/'
+    voxelPhaseFile = "./MyVoxelPhaseSpace.txt"
 
+    if args.mode == "one":
+        # Input parameters
+        energies = [150, 125, 100, 75, 50]
+
+        # Call the function to change input parameters
+        modifyInputParameters(voxelPhaseFile, numberOfProtons)
+
+        for energy in energies:
+            # Call the function to modify the beam energy
+            modifyBeamEnergy(voxelPhaseFile, energy)  
+            # Call the function to launch the simulation via terminal shell
+            runTopas(voxelPhaseFile, dataPath)
+            print(f'Simulation for energy {energy:.2f} finished successfully')
+
+    else:
+        # Input parameters
+        initialEnergy = 110.0
+        finalEnergy = 90
+        stepEnergy = 0.5
+
+        # Call the function to change input parameters
+        modifyInputParameters(voxelPhaseFile, numberOfProtons)
+
+        currentEnergy = initialEnergy
+        while currentEnergy >= finalEnergy:   
+            # Call the function to modify the beam energy
+            modifyBeamEnergy(voxelPhaseFile, currentEnergy)  
+            # Call the function to launch the simulation via terminal shell
+            runTopas(voxelPhaseFile, dataPath)
+            print(f'Simulation for energy {currentEnergy:.2f} finished successfully')
+            currentEnergy -= stepEnergy 

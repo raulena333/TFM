@@ -1,0 +1,8 @@
+validazion con 3 voxeles, oara ver si las dosis esta centrada o no
+grafica tiempo a numero de casos
+paso 0.5Mev o incluso menos, ideal como minimo energia promedio en un milimetro
+para energias, ver que pasa hsorograma a bajas energias (150,100,.... poenr graficas), por ejemplo dividir entre energia inicial inclos mas d eun mullo enstadisotca
+si pegas un corte en angulo, calcular procentaje dejas fuera
+ruido estadistico, lanzar mil simulaciones para misma energia y material y sacar sigma, distribuvion sigam, entre la media y luego sacar graficas del ruido a simulaciones
+denoising, merece la pena?
+simular con tablas y topas completo en gpu (cuda) y llamarlo a python

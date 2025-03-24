@@ -11,9 +11,9 @@ s:Ge/myBox/Type = "TsBox"
 s:Ge/myBox/Parent  = "World"
 #s:Ge/myBox/Material = "G4_WATER"
 b:Ge/myBox/IsParallel = "True"
-d:Ge/myBox/HLX = 5 cm
-d:Ge/myBox/HLY = 5 cm
-d:Ge/myBox/HLZ = 5 cm
+d:Ge/myBox/HLX = 0.5 mm
+d:Ge/myBox/HLY = 0.5 mm
+d:Ge/myBox/HLZ = 0.5 mm
 d:Ge/myBox/TransX = 0. m
 d:Ge/myBox/TransY = 0. m
 d:Ge/myBox/TransZ = 0 m
@@ -25,8 +25,8 @@ i:Ge/myBox/YBins = 1
 i:Ge/myBox/ZBins = 10
 
 # Geometry for vrt:
-d:Ge/subComponent/Thickness     = 1.0 cm
-d:Ge/subComponent/StartPosition = -1.0 * Ge/myBox/HLZ cm
+d:Ge/subComponent/Thickness     = 0.1 mm
+d:Ge/subComponent/StartPosition = -1.0 * Ge/myBox/HLZ mm
 
 s:Ge/subComponent1/Material  = "G4_WATER"
 s:Ge/subComponent2/Material  = "G4_WATER"
@@ -318,6 +318,7 @@ d:Gr/MyOGL/Phi = 20 deg
 b:Gr/Enable = "True"
 i:Gr/Verbosity = 2
 s:Gr/RefreshEvery = "Run"
+b:Ts/ShowCPUTime = "True"
 #b:Gr/MyOGL/CopyOpenGLToPDF = "TRUE"
 
 sv:Ph/Default/Modules = 1 "g4em-standard_opt0"
