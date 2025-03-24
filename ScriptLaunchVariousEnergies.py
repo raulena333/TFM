@@ -85,7 +85,6 @@ if __name__ == "__main__":
             # Call the function to launch the simulation via terminal shell
             runTopas(voxelPhaseFile, dataPath)
             print(f'Simulation for energy {energy:.2f} finished successfully')
-
     else:
         # Input parameters
         initialEnergy = 110.0
