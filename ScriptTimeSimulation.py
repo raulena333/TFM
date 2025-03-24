@@ -2,6 +2,18 @@ import time
 import re
 import subprocess
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.pylab as pylab
+
+# Plot appearance settings
+params = {
+    'xtick.labelsize': 17,    
+    'ytick.labelsize': 17,      
+    'axes.titlesize': 18,
+    'axes.labelsize': 18,
+    'legend.fontsize': 16
+}
+pylab.rcParams.update(params) 
 
 def modifyNumberHistories(filePath, newHistories):
     """
@@ -11,7 +23,7 @@ def modifyNumberHistories(filePath, newHistories):
     - filePath (str): Path to the TOPAS input file.
     - newEnergy (float): New energy value to replace in the file.
     """
-    patternEnergy = r"(i:So/MySource/NumberOfHistoriesInRun = \d+"
+    patternEnergy = r"i:So/MySource/NumberOfHistoriesInRun = \d+"
 
     with open(filePath, 'r') as file:
         content = file.read()
@@ -47,7 +59,7 @@ if __name__ == "__main__":
     voxelPhaseFile = "./MyVoxelPhaseSpace.txt"
 
     # Define number of protons launched
-    nStart = 1000
+    nStart = 0
     nEnd = 1000000
     step = 10
     numberOfHistories = np.arange(nStart, nEnd + 1, step)  # Include nEnd in range
@@ -61,9 +73,18 @@ if __name__ == "__main__":
         runTopas(voxelPhaseFile, dataPath)
         timeEnd = time.time()
 
-        time = timeEnd - timeStart
-        timeOfHistories.append()
+        timeOfSimulaton = timeEnd - timeStart
+        timeOfHistories.append(timeOfSimulaton)
         
         # Calculate total elapsed time
         print(f"Process with {histories} histories took {timeEnd:.4f} seconds")
 
+    # Plot results
+    plt.figure(figsize=(10, 5))
+    plt.plot(numberOfHistories, timeOfHistories, marker='o', linestyle='-', color='b', label="Execution Time")
+    plt.xlabel("Number of Histories")
+    plt.ylabel("Time (seconds)")
+    
+    plt.savefig("HistoryTimePlot.pdf")
+    plt.show()
+    

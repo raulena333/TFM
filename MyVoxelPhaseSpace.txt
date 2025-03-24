@@ -91,14 +91,14 @@ i:So/MySource/NumberOfHistoriesInRun = 1000
 # Scoring
 ####################################################
 # PhaseSpace Sub1
-s:Sc/MyScorer1/Quantity = "PhaseSpace"
-b:Sc/MyScorer1/Visualize = "True"
-s:Sc/MyScorer1/Surface = "subComponent1/ZMinusSurface"
-s:Sc/MyScorer1/OutputType = "ASCII"
-s:Sc/MyScorer1/OutputFile = "OutputVoxel1"
-s:Sc/MyScorer1/IfOutputFileAlreadyExists = "Overwrite"  # "Increment"
-b:Sc/MyScorer1/IncludeVertexInfo = "True"
-sv:Sc/MyScorer1/OnlyIncludeParticlesNamed = 1 "Proton"
+#s:Sc/MyScorer1/Quantity = "PhaseSpace"
+#b:Sc/MyScorer1/Visualize = "True"
+#s:Sc/MyScorer1/Surface = "subComponent1/ZMinusSurface"
+#s:Sc/MyScorer1/OutputType = "ASCII"
+#s:Sc/MyScorer1/OutputFile = "OutputVoxel1"
+#s:Sc/MyScorer1/IfOutputFileAlreadyExists = "Overwrite"  # "Increment"
+#b:Sc/MyScorer1/IncludeVertexInfo = "True"
+#sv:Sc/MyScorer1/OnlyIncludeParticlesNamed = 1 "Proton"
 
 # PhaseSpace Sub2
 s:Sc/MyScorer2/Quantity = "PhaseSpace"
@@ -114,11 +114,11 @@ sv:Sc/MyScorer2/OnlyIncludeParticlesNamed = 1 "Proton"
 ####################################################
 # Visualization
 ####################################################
-s:Gr/MyOGL/Type = "OpenGL"
-i:Gr/MyOGL/WidnowSizeX = 600
-i:Gr/MyOGL/WindowSizeY = 600
-d:Gr/MyOGL/Theta = 60 deg
-d:Gr/MyOGL/Phi = 20 deg
+#s:Gr/MyOGL/Type = "OpenGL"
+#i:Gr/MyOGL/WidnowSizeX = 600
+#i:Gr/MyOGL/WindowSizeY = 600
+#d:Gr/MyOGL/Theta = 60 deg
+#d:Gr/MyOGL/Phi = 20 deg
 #s:Gr/MyOGL/Projection = "Perspective"
 #d:Gr/MyOGL/PerspectiveAngle = 60 deg
 #b:Gr/MyOGL/IncludeAxes = "True"
@@ -126,7 +126,7 @@ b:Gr/Enable = "True"
 i:Gr/Verbosity = 2
 s:Gr/RefreshEvery = "Run"
 b:Ts/ShowCPUTime = "True"
-b:Gr/MyOGL/CopyOpenGLToPDF = "TRUE"
+# b:Gr/MyOGL/CopyOpenGLToPDF = "TRUE"
 
 sv:Ph/Default/Modules = 1 "g4em-standard_opt0"
 #b:Ts/PauseBeforeQuit = "True"
