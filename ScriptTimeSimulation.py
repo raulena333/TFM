@@ -36,6 +36,29 @@ def modifyNumberHistories(filePath, newHistories):
 
     print(f"Updated number of histories to {newHistories} in {filePath}.")
     
+    
+def modifyBeamEnergy(filePath, newEnergy):
+    """
+    Modify the beam energy in a TOPAS input file and save it with the same name.
+
+    Parameters:
+    - filePath (str): Path to the TOPAS input file.
+    - newEnergy (float): New energy value to replace in the file.
+    """
+    patternEnergy = r"(dv:So/MySource/BeamEnergySpectrumValues = 1 )(\d+(\.\d+)?)( MeV)"
+
+    with open(filePath, 'r') as file:
+        content = file.read()
+    
+    # Replace the energy value in the matched line
+    updatedFile = re.sub(patternEnergy, rf"dv:So/MySource/BeamEnergySpectrumValues = 1 {newEnergy} MeV", content)
+    
+    with open(filePath, 'w') as file:
+        file.write(updatedFile)
+
+    print(f"Updated beam energy to {newEnergy} MeV in {filePath}.")
+    
+    
 def runTopas(filePath, dataPath):
     """
     Run TOPAS txt-script with the modified input file
@@ -52,39 +75,50 @@ def runTopas(filePath, dataPath):
             
     except FileNotFoundError:
         print("TOPAS executable not found. Make sure TOPAS is installed and in your PATH.")
+        
 
 if __name__ == "__main__":
     # Arguments
     dataPath = '~raul/G4Data/'
     voxelPhaseFile = "./MyVoxelPhaseSpace.txt"
 
-    # Define number of protons launched
-    nStart = 0
-    nEnd = 1000000
-    step = 10
-    numberOfHistories = np.arange(nStart, nEnd + 1, step)  # Include nEnd in range
-    timeOfHistories = []
-
-    # Start simulations
-    for histories in numberOfHistories:
-        modifyNumberHistories(voxelPhaseFile, histories)
-
-        timeStart = time.time()
-        runTopas(voxelPhaseFile, dataPath)
-        timeEnd = time.time()
-
-        timeOfSimulaton = timeEnd - timeStart
-        timeOfHistories.append(timeOfSimulaton)
-        
-        # Calculate total elapsed time
-        print(f"Process with {histories} histories took {timeEnd:.4f} seconds")
-
-    # Plot results
+    # Define number of protons launched and energies
+    nStartRun = 0 , nEndRun = 1000000, stepRun = 10
+    numberOfHistories = np.arange(nStartRun, nEndRun + 1, stepRun) 
+    energies = np.array([50., 100., 150., 200.])
+    
+    # Define colors for each energy level
+    colors = ['b', 'g', 'r', 'm']  # Blue, Green, Red, Magenta
+    
+    # Create figure
     plt.figure(figsize=(10, 5))
-    plt.plot(numberOfHistories, timeOfHistories, marker='o', linestyle='-', color='b', label="Execution Time")
+    
+    for i, energy in energies:
+        modifyBeamEnergy(voxelPhaseFile, energy)
+        timeOfHistories = []
+        print(f"############################\n Energy {energy:.4f} meV\n ############################\n")
+
+        # Start simulations
+        for histories in numberOfHistories:
+            modifyNumberHistories(voxelPhaseFile, histories)
+
+            timeStart = time.time()
+            runTopas(voxelPhaseFile, dataPath)
+            timeEnd = time.time()
+
+            timeOfSimulaton = timeEnd - timeStart
+            timeOfHistories.append(timeOfSimulaton)
+            
+            # Calculate total elapsed time
+            print(f"Process with {histories} histories took {timeEnd:.4f} seconds")
+
+        # Plot
+        plt.plot(numberOfHistories, timeOfHistories, marker='o', linestyle='-', color=colors[i], label=f"{energy:.0f} MeV")
+        
     plt.xlabel("Number of Histories")
     plt.ylabel("Time (seconds)")
+    plt.legend()
     
-    plt.savefig("HistoryTimePlot.pdf")
+    plt.savefig("HistoryTimePlotForEnergies.pdf")
     plt.show()
     
