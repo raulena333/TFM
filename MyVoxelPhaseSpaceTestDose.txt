@@ -140,6 +140,7 @@ d:Ge/BeamPosition/TransX = 0. cm
 d:Ge/BeamPosition/TransY = 0. cm
 d:Ge/BeamPosition/TransZ = 5 cm
 
+
 ####################################################
 # Beam Source
 ####################################################
@@ -248,6 +249,7 @@ s:Sc/MyScorer9/IfOutputFileAlreadyExists = "Overwrite"
 b:Sc/MyScorer9/IncludeVertexInfo = "True"
 #sv:Sc/MyScorer9/OnlyIncludeParticlesNamed = 1 "Proton"
 b:Sc/MyScorer9/OutputToConsole = "TRUE"
+
 
 ####################################################
 # Visualization
