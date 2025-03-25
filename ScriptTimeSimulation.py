@@ -83,17 +83,19 @@ if __name__ == "__main__":
     voxelPhaseFile = "./MyVoxelPhaseSpace.txt"
 
     # Define number of protons launched and energies
-    nStartRun = 0 , nEndRun = 1000000, stepRun = 10
+    nStartRun = 0 
+    nEndRun = 500000
+    stepRun = 1000
     numberOfHistories = np.arange(nStartRun, nEndRun + 1, stepRun) 
-    energies = np.array([50., 100., 150., 200.])
+    energies = np.array([100.,500., 1000., 5000.])
     
     # Define colors for each energy level
     colors = ['b', 'g', 'r', 'm']  # Blue, Green, Red, Magenta
     
     # Create figure
-    plt.figure(figsize=(10, 5))
+    plt.figure(figsize=(10, 8))
     
-    for i, energy in energies:
+    for i, energy in enumerate(energies):
         modifyBeamEnergy(voxelPhaseFile, energy)
         timeOfHistories = []
         print(f"############################\n Energy {energy:.4f} meV\n ############################\n")
@@ -113,7 +115,7 @@ if __name__ == "__main__":
             print(f"Process with {histories} histories took {timeEnd:.4f} seconds")
 
         # Plot
-        plt.plot(numberOfHistories, timeOfHistories, marker='o', linestyle='-', color=colors[i], label=f"{energy:.0f} MeV")
+        plt.plot(numberOfHistories, timeOfHistories, linestyle='-', color=colors[i], label=f"{energy:.0f} MeV") # marker = '.'
         
     plt.xlabel("Number of Histories")
     plt.ylabel("Time (seconds)")
