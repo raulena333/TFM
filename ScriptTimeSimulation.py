@@ -68,8 +68,8 @@ def runTopas(filePath, dataPath):
     - dataPath (str): Path to the TOPAS G4 data.
     """
     try:
-        result = subprocess.run(f'export TOPAS_G4_DATA_DIR={dataPath} && ~raul/topas/bin/topas {filePath}', 
-                        text=True, shell=True)
+        result = subprocess.run(f"export TOPAS_G4_DATA_DIR={dataPath} && ~/topas/bin/topas {filePath}", 
+               text=True, shell=True)
         if result == 0:
             print("Data loaded and simulation have started succesfully ")
             
@@ -79,15 +79,15 @@ def runTopas(filePath, dataPath):
 
 if __name__ == "__main__":
     # Arguments
-    dataPath = '~raul/G4Data/'
+    dataPath = '~/G4Data/'
     voxelPhaseFile = "./MyVoxelPhaseSpace.txt"
 
     # Define number of protons launched and energies
     nStartRun = 0 
-    nEndRun = 500000
+    nEndRun = 10000000
     stepRun = 1000
     numberOfHistories = np.arange(nStartRun, nEndRun + 1, stepRun) 
-    energies = np.array([100.,500., 1000., 5000.])
+    energies = np.array([50., 100., 500., 1000.])
     
     # Define colors for each energy level
     colors = ['b', 'g', 'r', 'm']  # Blue, Green, Red, Magenta
@@ -122,5 +122,5 @@ if __name__ == "__main__":
     plt.legend()
     
     plt.savefig("HistoryTimePlotForEnergies.pdf")
-    plt.show()
+    # plt.show()
     

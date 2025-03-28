@@ -81,9 +81,9 @@ s:So/MySource/BeamAngularDistribution = "None"
 #d:So/MySource/BeamAngularSpreadX = 0.0032 rad
 #d:So/MySource/BeamAngularSpreadY = 0.0032 rad
 s:So/MySource/BeamEnergySpectrumType = "Discrete"
-dv:So/MySource/BeamEnergySpectrumValues = 1 100.0 MeV
+dv:So/MySource/BeamEnergySpectrumValues = 1 100 MeV
 uv:So/MySource/BeamEnergySpectrumWeights = 1 1.0
-i:So/MySource/NumberOfHistoriesInRun = 341000
+i:So/MySource/NumberOfHistoriesInRun = 1000
 #i:So/MySource/NumberOfHistoriesInRandomJob = 0
 
 
@@ -91,23 +91,24 @@ i:So/MySource/NumberOfHistoriesInRun = 341000
 # Scoring
 ####################################################
 # PhaseSpace Sub1
-#s:Sc/MyScorer1/Quantity = "PhaseSpace"
-#b:Sc/MyScorer1/Visualize = "True"
-#s:Sc/MyScorer1/Surface = "subComponent1/ZMinusSurface"
-#s:Sc/MyScorer1/OutputType = "ASCII"
-#s:Sc/MyScorer1/OutputFile = "OutputVoxel1"
-#s:Sc/MyScorer1/IfOutputFileAlreadyExists = "Overwrite"  # "Increment"
-#b:Sc/MyScorer1/IncludeVertexInfo = "True"
-#sv:Sc/MyScorer1/OnlyIncludeParticlesNamed = 1 "Proton"
+# s:Sc/MyScorer1/Quantity = "PhaseSpace"
+# b:Sc/MyScorer1/Visualize = "True"
+# s:Sc/MyScorer1/Surface = "subComponent1/ZMinusSurface"
+# s:Sc/MyScorer1/OutputType = "ASCII"
+# s:Sc/MyScorer1/OutputFile = "OutputVoxel1"
+# s:Sc/MyScorer1/IfOutputFileAlreadyExists = "Overwrite"  # "Increment"
+# b:Sc/MyScorer1/IncludeVertexInfo = "True"
+# sv:Sc/MyScorer1/OnlyIncludeParticlesNamed = 1 "Proton"
 
 # PhaseSpace Sub2
 s:Sc/MyScorer2/Quantity = "PhaseSpace"
 b:Sc/MyScorer2/Visualize = "True"
 s:Sc/MyScorer2/Surface = "subComponent2/ZMinusSurface"
 s:Sc/MyScorer2/OutputType = "ASCII"
-s:Sc/MyScorer2/OutputFile = "OutputVoxel2"
-s:Sc/MyScorer2/IfOutputFileAlreadyExists = "Overwrite" # "Increment"
+s:Sc/MyScorer2/OutputFile = "OutputVoxel"
+s:Sc/MyScorer2/IfOutputFileAlreadyExists = "Overwrite" # Increment
 b:Sc/MyScorer2/IncludeVertexInfo = "True"
+
 sv:Sc/MyScorer2/OnlyIncludeParticlesNamed = 1 "Proton"
 
 
@@ -122,9 +123,10 @@ sv:Sc/MyScorer2/OnlyIncludeParticlesNamed = 1 "Proton"
 #s:Gr/MyOGL/Projection = "Perspective"
 #d:Gr/MyOGL/PerspectiveAngle = 60 deg
 #b:Gr/MyOGL/IncludeAxes = "True"
-b:Gr/Enable = "True"
+#b:Gr/Enable = "True"
 i:Gr/Verbosity = 2
 s:Gr/RefreshEvery = "Run"
+i:Ts/Seed = 124116
 b:Ts/ShowCPUTime = "True"
 # b:Gr/MyOGL/CopyOpenGLToPDF = "TRUE"
 
