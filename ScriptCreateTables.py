@@ -101,7 +101,7 @@ def calculateAngleEnergy(fileName):
     # Load files
     newData = np.loadtxt(fileName)  
     print(f'{fileName} loaded successfully.')
-    finalDirectionCosineX, finalDirectionCosineY, finalEnergy, isSign, initialEnergy, initialDirectionCosineZ = newData[:, [3,4,5,8]].T
+    finalDirectionCosineX, finalDirectionCosineY, finalEnergy, isSign = newData[:, [3,4,5,8]].T
     
     finalAngles = []
         
@@ -130,7 +130,7 @@ def saveTohdf5(material, energy, energyVec, angleVec):
     - angleVec (array): Array of the final energies of the protons.
     """
     
-    with h5py.File('4DTableEnergy.h5', 'a') as file:
+    with h5py.File('./Table/4DTableEnergy.h5', 'a') as file:
         group = file.require_group(f"{material}/{energy}")  # Create or open group
         
         # Save with compression
@@ -140,24 +140,23 @@ def saveTohdf5(material, energy, energyVec, angleVec):
            
 if __name__ == "__main__":  
     # Variables    
-    numberOfProtons = 10000
+    numberOfProtons = 100000
     dataPath = '~/G4Data/'
     voxelPhaseFile = "./MyVoxelPhaseSpace.txt"
     fileName = "OutputVoxel.phsp"
     
     # Input parameters
-    initialEnergy = 110.0
-    finalEnergy = 90
+    initialEnergy = 200.
+    finalEnergy = 50.
     stepEnergy = 0.3
         
-    materials = ['G4_WATER']
-    densities = ['1.0'] # g/cm^3
-        
-    # 4D Table: Dictionary to store results
-    resultsTable = {}  
+    materials = ['G4_WATER', # 'Carbon', 'Nitrogen', 'Oxygen'
+                 ]
+    densities = ['1.0'] # g/cm^3   
+    
+    modifyInputParameters(voxelPhaseFile, numberOfProtons)     
 
     for material in materials:
-        resultsTable[material] = {} 
 
         # Modify the material in the TOPAS file
         modifyMaterial(voxelPhaseFile, material)

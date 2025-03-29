@@ -1,6 +1,8 @@
 import re
 import os
+import time
 import struct
+import h5py
 import numpy as np
 from scipy.stats import skew, kurtosis
 import subprocess
@@ -151,19 +153,44 @@ def readInputFileSigma(fileName, initialEnergy):
     return finalEnergy, finalAngles, meanEnergy, varianceEnergy, stdEnergy, medianEnergy, meanAngle, varianceAngle, stdAngle, medianAngle
 
 
+def saveH5File(h5FileName, dictionaryData):
+    """
+    Saves statistical data as columns under an incrementing group name (Simulation 1, Simulation 2, etc.)
+    
+    Parameters:
+    - hdf5FileName (str): Path to the HDF5 file.
+    - All the other lists contain statistical values to be saved.
+    """  
+    
+    with h5py.File(h5FileName, "a") as f:
+        # Find the simulation number
+        simNumber = 1
+        while f"Simulation{simNumber}" in f:
+            simNumber += 1
+        group = f.create_group(f"Simulation{simNumber}")
+        
+        # Save each array as a column dataset inside the group
+        for key, data in dictionaryData.items():
+            group.create_dataset(key, data=data)
+            
+
 if __name__ == "__main__":
+    
+    start_time = time.time()  # Record the start time
+    
     # Variables
     numberOfProtonsRun = 1000
     numberOfRuns = 1000000
     energy = 100
     
-    numberOfBinsAngles = 20
-    numberOfBinsEnergies = 20
-    jointNumberOfBins = 20
+    numberOfBinsAngles = 100
+    numberOfBinsEnergies = 100
+    jointNumberOfBins = 100
     
     dataPath = '~/G4Data/'
     voxelPhaseFile = "./MyVoxelPhaseSpace.txt"
     fileName = "OutputVoxel.phsp"
+    outputH5File = "SimulationMeanStd.h5"
     
     # Variables to store statistics for each run
     meanEnergies = []
@@ -176,6 +203,9 @@ if __name__ == "__main__":
     stdAngles = []
     medianAngles = []
     
+    # Data to save in a dictionary
+    dataDict = {}
+    
     # Call the function to change input parameters
     modifyInputParameters(voxelPhaseFile, numberOfProtonsRun)
     modifyBeamEnergy(voxelPhaseFile, energy)
@@ -185,7 +215,7 @@ if __name__ == "__main__":
         
         # Change seed randomness
         # modifySeedRandomness(voxelPhaseFile, trueRandomNumber(0, 2147483647))
-        modifySeedRandomness(voxelPhaseFile, i)
+        modifySeedRandomness(voxelPhaseFile, i + 1) # starts from 1
         
         # Simulate the experiment
         runTopas(voxelPhaseFile, dataPath)
@@ -207,17 +237,31 @@ if __name__ == "__main__":
         varianceAngles.append(varianceAngle)
         stdAngles.append(stdAngle)
         medianAngles.append(medianAngle)
+    
+    # Fill the dictionary 
+    dataDict = {
+            "meanEnergy": np.array(meanEnergies),
+            "varianceEnergy": np.array(varianceEnergies),
+            "stdEnergy": np.array(stdEnergies),
+            "medianEnergy": np.array(medianEnergies),
+            "meanAngle": np.array(meanAngles),
+            "varianceAngle": np.array(varianceAngles),
+            "stdAngle": np.array(stdAngles),
+            "medianAngle": np.array(medianAngles),
+        }
+    
+    saveH5File(fileName, dataDict)
           
     # Plot histograms of energy and angle
     fig1, axs1 = plt.subplots(1, 2, figsize=(10, 6))
 
     sns.histplot(meanEnergies, bins=numberOfBinsEnergies, edgecolor="black", color='orange', kde=False, ax=axs1[0])
-    axs1[0].set_xlabel(r'$E\left[\ln\left(\frac{E_i - E_f}{E_i}\right)\right]$ (MeV)')
+    axs1[0].set_xlabel(r'$E[E_f]$ (MeV)')
     axs1[0].set_title('Final mean Energy distribution')
     axs1[0].set_yscale('log')
             
     sns.histplot(stdEnergies, bins=numberOfBinsEnergies, edgecolor="black", color='red', kde=False, ax=axs1[1])
-    axs1[1].set_xlabel(r'$E[\theta]$ (deg)')
+    axs1[1].set_xlabel(r'$\sigma_{E_f}$ (deg)')
     axs1[1].set_title('Final Std Energy distribution')
     axs1[1].set_yscale('log')
 
@@ -231,12 +275,12 @@ if __name__ == "__main__":
     fig2, axs2 = plt.subplots(1, 2, figsize=(10, 6))
     
     sns.histplot(meanAngles, bins=numberOfBinsAngles, edgecolor="black", color='orange', kde=False, ax=axs2[0])
-    axs2[0].set_xlabel(r'$E\left[\ln\left(\frac{E_i - E_f}{E_i}\right)\right]$ (MeV)')
+    axs2[0].set_xlabel(r'$E[\theta]$ (MeV)')
     axs2[0].set_title('Final Mean Angle distribution')
     axs2[0].set_yscale('log')
             
     sns.histplot(stdAngles, bins=numberOfBinsAngles, edgecolor="black", color='red', kde=False, ax=axs2[1])
-    axs2[1].set_xlabel(r'$E[\theta]$ (deg)')
+    axs2[1].set_xlabel(r'$\sigma_\theta$ (deg)')
     axs2[1].set_title('Final Std Angle distribution')
     axs2[1].set_yscale('log')
 
@@ -264,8 +308,8 @@ if __name__ == "__main__":
     ax1 = fig3.add_subplot(111, projection='3d')
     surf = ax1.plot_surface(Xmean, Ymean, Zmean, cmap='coolwarm', edgecolor='k', alpha=0.9)
     ax1.set_xlabel(r'$E[\theta]$ (deg)')
-    ax1.set_ylabel(r'$E\left[\ln\left(\frac{E_i - E_f}{E_i}\right)\right]$ (MeV)')
-    ax1.set_zlabel(r'Probability')
+    ax1.set_ylabel(r'$E[E_f]$ (MeV)')
+    # ax1.set_zlabel(r'Probability')
     # ax.set_title('Joint Probability Distribution')
 
     cbar = plt.colorbar(surf, ax=ax1, shrink=0.5, pad=0.05, aspect = 4)
@@ -279,9 +323,9 @@ if __name__ == "__main__":
     fig4 = plt.figure(figsize=(10, 7))
     ax2 = fig4.add_subplot(111, projection='3d')
     surf = ax2.plot_surface(Xstd, Ystd, Zstd, cmap='coolwarm', edgecolor='k', alpha=0.9)
-    ax2.set_xlabel(r'$E[\theta]$ (deg)')
-    ax2.set_ylabel(r'$E\left[\ln\left(\frac{E_i - E_f}{E_i}\right)\right]$ (MeV)')
-    ax2.set_zlabel(r'Probability')
+    ax2.set_xlabel(r'$\sigma_\theta$ (deg)')
+    ax2.set_ylabel(r'$\sigma_{E_f}$ (MeV)')
+    # ax2.set_zlabel(r'Probability')
     # ax.set_title('Joint Probability Distribution')
 
     cbar = plt.colorbar(surf, ax=ax2, shrink=0.5, pad=0.05, aspect = 4)
@@ -290,21 +334,8 @@ if __name__ == "__main__":
     plt.savefig('ProbabilityDistributionStd.pdf')
     # plt.show()
     plt.close(fig4) 
+    
+    end_time = time.time()  # Record the end time
+    execution_time = end_time - start_time  # Calculate the difference
 
-
-    # # Save for more terminals at the same time
-    # baseFileName = "MeanSigmaSurface"
-    # fileExtension = ".txt"
-    # counter = 0
-
-    # while os.path.exists(f"{baseFileName}{counter}{fileExtension}"):
-    #     counter += 1
-    # saveFileName = f"{baseFileName}{counter}{fileExtension}"
-
-    # dataToSave = np.column_stack([
-    #     meanEnergies, varianceEnergies, stdEnergies, medianEnergies,
-    #     meanAngles, varianceAngles, stdAngles, medianAngles
-    # ])
-
-    # header = "MeanEnergy\tVarianceEnergy\tStdEnergy\tMedianEnergy\tMeanAngle\tVarianceAngle\tStdAngle\tMedianAngle"
-    # np.savetxt(saveFileName, dataToSave, fmt="%.6f", delimiter="\t", comments="", header=header)
+    print(f"Program finished in {execution_time:.2f} seconds.")
