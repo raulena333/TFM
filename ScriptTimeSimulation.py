@@ -109,47 +109,48 @@ if __name__ == "__main__":
                         1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000,
                         10000, 20000, 30000, 40000, 50000, 60000, 70000, 80000, 90000, 
                         100000, 200000, 300000, 400000, 500000, 600000, 700000, 800000, 900000, 
-                        1000000, 2000000, 3000000, 4000000, 5000000, 6000000, 7000000, 8000000, 9000000, 10000000]
+                        1000000, 2000000, 3000000, 4000000, 5000000, 6000000, 7000000, 8000000, 9000000, 10000000
+                        ]
     energies = np.array([50., #100., 500., 1000.
                          ])
-    cores = [2, 4, 6, 8, 10, 0]
+    cores = 0
     
     # Define colors for each energy level
     colors = ['b', 'g', 'r', 'm', 'c', 'y']  # Blue, Green, Red, Magenta, Cyan, Yellow  
     
+     # Create figure
+    plt.figure(figsize=(10, 8))
+        
     for i, energy in enumerate(energies):
         modifyBeamEnergy(voxelPhaseFile, energy)
-        
-        # Create figure
-        plt.figure(figsize=(10, 8))
+        timeOfHistories = []
         
         # Simulate depending on cores
-        for j, core in enumerate(cores):
-            modifyThreads(voxelPhaseFile, core)
-            timeOfHistories = []
-            
-            # Start simulations
-            for histories in numberOfHistories:
-                modifyNumberHistories(voxelPhaseFile, histories)
+        modifyThreads(voxelPhaseFile, cores)
+              
+        # Start simulations
+        for histories in numberOfHistories:
+            modifyNumberHistories(voxelPhaseFile, histories)
 
-                timeStart = time.time()
-                runTopas(voxelPhaseFile, dataPath)
-                timeEnd = time.time()
+            timeStart = time.time()
+            runTopas(voxelPhaseFile, dataPath)
+            timeEnd = time.time()
 
-                timeOfSimulaton = timeEnd - timeStart
-                timeOfHistories.append(timeOfSimulaton)
+            timeOfSimulaton = timeEnd - timeStart
+            timeOfHistories.append(timeOfSimulaton)
                 
-                # Calculate total elapsed time
-                print(f"Process with {histories} histories took {timeEnd:.4f} seconds")
+            # Calculate total elapsed time
+            print(f"Process with {histories} histories took {timeOfSimulaton:.4f} seconds")
 
-            # Plot
-            plt.plot(numberOfHistories, timeOfHistories, linestyle='-', color=colors[j], label=f"Threads {core}") # marker = '.'    
-        plt.xlabel("Number of Histories")
-        plt.ylabel("Time (seconds)")
-        plt.title(f"Energy {energy}")
-        plt.legend()
+        # Plot
+        plt.plot(numberOfHistories, timeOfHistories, linestyle='-',marker = '.', color=colors[i], label=f"Energy {energy}") # marker = '.' 
+               
+    plt.xlabel("Number of Histories")
+    plt.ylabel("Time (seconds)")
+    # plt.title(f"Energy {energy}")
+    plt.legend()
         
-        plt.savefig(f"fHistoryTimePlotForEnergies_Energy{energy}.pdf")
-        # plt.show()
-        plt.close()
+    plt.savefig(f"HistoryTimePlotForEnergies.pdf")
+    # plt.show()
+    plt.close()
     

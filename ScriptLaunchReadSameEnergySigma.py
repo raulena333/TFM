@@ -153,26 +153,47 @@ def readInputFileSigma(fileName, initialEnergy):
     return finalEnergy, finalAngles, meanEnergy, varianceEnergy, stdEnergy, medianEnergy, meanAngle, varianceAngle, stdAngle, medianAngle
 
 
-def saveH5File(h5FileName, dictionaryData):
+def saveH5File(h5FileName, dictionaryData, nProtons):
     """
-    Saves statistical data as columns under an incrementing group name (Simulation 1, Simulation 2, etc.)
+    Saves statistical data as columns under an incrementing group name (Simulation 1, Simulation 2, etc.),
+    nested inside a group named by the number of protons.
     
     Parameters:
-    - hdf5FileName (str): Path to the HDF5 file.
-    - All the other lists contain statistical values to be saved.
+    - h5FileName (str): Path to the HDF5 file.
+    - dictionaryData (dict): Dictionary containing statistical values to be saved.
+    - nProtons (int): Number of protons used in the simulation.
     """  
-    
+    # Check if the file exists and is a valid HDF5 file
+    if os.path.exists(h5FileName):
+        try:
+            with h5py.File(h5FileName, "r") as f:
+                print("File exists and is a valid HDF5 file.")
+        except OSError:
+            print("Error: File exists but is not a valid HDF5 file. Deleting and recreating...")
+            os.remove(h5FileName)
+
     with h5py.File(h5FileName, "a") as f:
-        # Find the simulation number
+        # Create or open the main group for this nProtons value
+        protonsGroupName = f"{nProtons} nProtons"
+        if protonsGroupName not in f:
+            protonsGroup = f.create_group(protonsGroupName)
+        else:
+            protonsGroup = f[protonsGroupName]
+
+        # Find the next available simulation group number
         simNumber = 1
-        while f"Simulation{simNumber}" in f:
+        while f"Simulation{simNumber}" in protonsGroup:
             simNumber += 1
-        group = f.create_group(f"Simulation{simNumber}")
         
-        # Save each array as a column dataset inside the group
+        # Create the new simulation group
+        simGroup = protonsGroup.create_group(f"Simulation{simNumber}")
+        
+        # Save each array as a dataset inside the new simulation group
         for key, data in dictionaryData.items():
-            group.create_dataset(key, data=data)
-            
+            simGroup.create_dataset(key, data=data)
+        
+    print(f"Data saved in '{h5FileName}' under '{protonsGroupName} -> Simulation{simNumber}'")
+       
 
 if __name__ == "__main__":
     
@@ -180,7 +201,7 @@ if __name__ == "__main__":
     
     # Variables
     numberOfProtonsRun = 1000
-    numberOfRuns = 1000000
+    numberOfRuns = 280000
     energy = 100
     
     numberOfBinsAngles = 100
@@ -214,8 +235,8 @@ if __name__ == "__main__":
     for i in range(numberOfRuns):
         
         # Change seed randomness
-        # modifySeedRandomness(voxelPhaseFile, trueRandomNumber(0, 2147483647))
-        modifySeedRandomness(voxelPhaseFile, i + 1) # starts from 1
+        # modifySeedRandomness(voxelPhaseFile, trueRandomNumber(1, 2147483647))
+        modifySeedRandomness(voxelPhaseFile, i + 320001) # starts from 1
         
         # Simulate the experiment
         runTopas(voxelPhaseFile, dataPath)
@@ -250,7 +271,7 @@ if __name__ == "__main__":
             "medianAngle": np.array(medianAngles),
         }
     
-    saveH5File(fileName, dataDict)
+    saveH5File(outputH5File, dataDict, numberOfProtonsRun)
           
     # Plot histograms of energy and angle
     fig1, axs1 = plt.subplots(1, 2, figsize=(10, 6))
