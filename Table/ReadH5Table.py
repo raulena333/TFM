@@ -1,58 +1,30 @@
 import h5py
 import numpy as np
+import pycuda.driver as cuda
+import pycuda.autoinit
 
-import h5py
-import numpy as np
+def load_hdf5_npz(hdf5_path, npz_path, material, energy):
+    # Load HDF5
+    with h5py.File(hdf5_path, 'r') as file:
+        energyVec_hdf5 = np.array(file[f"{material}/{energy}/EnergyVec"])
+        angleVec_hdf5 = np.array(file[f"{material}/{energy}/AngleVec"])
 
-def read_data_from_hdf5(hdf5FileName, material, initialEnergy):
-    """
-    Reads the energy and angle data for a specific material and initial energy
-    from the HDF5 file.
+    # Load NPZ
+    npz_data = np.load(npz_path)
+    energyVec_npz = npz_data[f"{material}_{energy}_energy"]
+    angleVec_npz = npz_data[f"{material}_{energy}_angle"]
 
-    Parameters:
-    - hdf5FileName (str): The path to the HDF5 file where the data is stored.
-    - material (str): The material name.
-    - initialEnergy (float): The initial energy of the proton beam.
+    return energyVec_hdf5, angleVec_hdf5, energyVec_npz, angleVec_npz
 
-    Returns:
-    - energyVec (numpy.ndarray): Array of energies for the given material and energy.
-    - angleVec (numpy.ndarray): Array of angles for the given material and energy.
-    """
-    try:
-        # Open the HDF5 file
-        with h5py.File(hdf5FileName, 'r') as f:
-            # Check if the material exists in the file
-            if material not in f:
-                raise ValueError(f"Material '{material}' not found in the HDF5 file.")
-            
-            # Print the available energy groups for the material
-            # print(f"Available energy groups for material '{material}':")
-            # print(list(f[material].keys()))  # This prints all the energy values (keys)
+# Example
+hdf5_path = "./Table/4DTableEnergy.h5"
+npz_path = "./Table/4DTable.npz"
+material = "G4_WATER" 
+energy = 200.0 
 
-            # Check if the initialEnergy group exists for the given material
-            if str(initialEnergy) not in f[material]:
-                raise ValueError(f"Energy {initialEnergy} not found for material '{material}'.")
+energyVec_hdf5, angleVec_hdf5, energyVec_npz, angleVec_npz = load_hdf5_npz(hdf5_path, npz_path, material, energy)
 
-            # Retrieve the energy and angle data for the specified material and energy
-            energyVec = f[material][str(initialEnergy)]['EnergyVec'][:]
-            angleVec = f[material][str(initialEnergy)]['AngleVec'][:]
-        
-        print(f"Successfully loaded data for material: {material} and energy: {initialEnergy}")
-        return energyVec, angleVec
-
-    except Exception as e:
-        print(f"Error reading data: {e}")
-        return None, None
-
-if __name__ == "__main__":
-    # Set the path to the HDF5 file and the material and energy values
-    hdf5FileName = '4DTableEnergy.h5'  # Change this to the correct path if needed
-    material = 'G4_WATER'
-    initialEnergy = 197.2999999999999  # Replace with the energy value you're interested in
-
-    # Read the energy and angle vectors for the specified material and energy
-    energyVec, angleVec = read_data_from_hdf5(hdf5FileName, material, initialEnergy)
-    
-    if energyVec is not None and angleVec is not None:
-        print(f"Energy Vector: {energyVec}")
-        print(f"Angle Vector: {angleVec}")
+print("HDF5 Energy Vector:", energyVec_hdf5)
+print("HDF5 Angle Vector:", angleVec_hdf5)  
+print("NPZ Energy Vector:", energyVec_npz)
+print("NPZ Angle Vector:", angleVec_npz)
