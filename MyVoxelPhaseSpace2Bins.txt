@@ -1,0 +1,136 @@
+####################################################
+# Geometry 
+####################################################
+# World:
+s:Ge/World/Type = "TsBox"
+s:Ge/World/Material = "Vacuum"
+b:Ge/World/Invisible = "TRUE"
+
+# TestBox:
+s:Ge/myBox/Type = "TsBox"
+s:Ge/myBox/Parent  = "World"
+#s:Ge/myBox/Material = "G4_WATER"
+b:Ge/myBox/IsParallel = "True"
+d:Ge/myBox/HLX = 0.5 mm
+d:Ge/myBox/HLY = 0.5 mm
+d:Ge/myBox/HLZ = 0.5 mm
+d:Ge/myBox/TransX = 0. mm
+d:Ge/myBox/TransY = 0. mm
+d:Ge/myBox/TransZ = 0 mm
+d:Ge/myBox/RotX = 0. deg
+d:Ge/myBox/RotY = 0. deg
+d:Ge/myBox/RotZ = 0. deg
+i:Ge/myBox/XBins = 1
+i:Ge/myBox/YBins = 1
+i:Ge/myBox/ZBins = 2
+
+# Geometry
+d:Ge/subComponent/Thickness     = 0.5 mm
+d:Ge/subComponent/StartPosition = -1.0 * Ge/myBox/HLZ mm
+
+s:Ge/subComponent1/Material  = "G4_WATER"
+s:Ge/subComponent2/Material  = "G4_WATER"
+
+s:Ge/subComponent1/Type      = "TsBox"
+s:Ge/subComponent1/Parent    = "World"
+d:Ge/subComponent1/HLX       = Ge/myBox/HLX mm
+d:Ge/subComponent1/HLY       = Ge/myBox/HLY mm
+d:Ge/subComponent1/HLZ       = 0.5 * Ge/subComponent/Thickness mm
+d:Ge/subComponent1/TransX    = 0 mm
+d:Ge/subComponent1/TransY    = 0 mm
+d:Ge/subComponent1/TransZ    = Ge/subComponent/StartPosition + Ge/subComponent1/HLZ mm
+d:Ge/subComponent1/RotX      = 0 deg
+d:Ge/subComponent1/RotY      = 0 deg
+d:Ge/subComponent1/RotZ      = 0 deg
+
+s:Ge/subComponent2/Type      = "TsBox"
+s:Ge/subComponent2/Parent    = "World"
+d:Ge/subComponent2/HLX       = Ge/myBox/HLX mm
+d:Ge/subComponent2/HLY       = Ge/myBox/HLY mm
+d:Ge/subComponent2/HLZ       = 0.5 * Ge/subComponent/Thickness mm
+d:Ge/subComponent2/TransX    = 0 mm
+d:Ge/subComponent2/TransY    = 0 mm
+d:Ge/subComponent2/TransZTmp = Ge/subComponent1/TransZ + Ge/subComponent1/HLZ mm
+d:Ge/subComponent2/TransZ    = Ge/subComponent2/TransZTmp + Ge/subComponent2/HLZ mm
+d:Ge/subComponent2/RotX      = 0 deg
+d:Ge/subComponent2/RotY      = 0 deg
+d:Ge/subComponent2/RotZ      = 0 deg
+
+# BeamPosition:
+s:Ge/BeamPosition/Type = "Group"
+s:Ge/BeamPosition/Parent  = "World"
+d:Ge/BeamPosition/TransX = 0. cm
+d:Ge/BeamPosition/TransY = 0. cm
+d:Ge/BeamPosition/TransZ = 5 cm
+
+####################################################
+# Beam Source
+####################################################
+s:So/MySource/Type = "Beam" 
+s:So/MySource/Component = "BeamPosition"
+s:So/MySource/BeamParticle = "proton"
+s:So/MySource/BeamPositionDistribution = "None"
+#s:So/MySource/BeamPositionCutoffShape = "Ellipse"
+#d:So/MySource/BeamPositionCutoffX = 10. cm
+#d:So/MySource/BeamPositionCutoffY = 10. cm
+#d:So/MySource/BeamPositionSpreadX = 0.65 cm
+#d:So/MySource/BeamPositionSpreadY = 0.65 cm
+s:So/MySource/BeamAngularDistribution = "None" 
+#d:So/MySource/BeamAngularCutoffX = 90. deg
+#d:So/MySource/BeamAngularCutoffY = 90. deg
+#d:So/MySource/BeamAngularSpreadX = 0.0032 rad
+#d:So/MySource/BeamAngularSpreadY = 0.0032 rad
+s:So/MySource/BeamEnergySpectrumType = "Discrete"
+dv:So/MySource/BeamEnergySpectrumValues = 1 100 MeV
+uv:So/MySource/BeamEnergySpectrumWeights = 1 1.0
+i:So/MySource/NumberOfHistoriesInRun = 1000
+#i:So/MySource/NumberOfHistoriesInRandomJob = 0
+
+
+####################################################
+# Scoring
+####################################################
+# PhaseSpace Sub1
+# s:Sc/MyScorer1/Quantity = "PhaseSpace"
+# b:Sc/MyScorer1/Visualize = "True"
+# s:Sc/MyScorer1/Surface = "subComponent1/ZMinusSurface"
+# s:Sc/MyScorer1/OutputType = "ASCII"
+# s:Sc/MyScorer1/OutputFile = "OutputVoxel1"
+# s:Sc/MyScorer1/IfOutputFileAlreadyExists = "Overwrite"  # "Increment"
+# b:Sc/MyScorer1/IncludeVertexInfo = "True"
+# sv:Sc/MyScorer1/OnlyIncludeParticlesNamed = 1 "Proton"
+
+# PhaseSpace Sub2
+s:Sc/MyScorer2/Quantity = "PhaseSpace"
+b:Sc/MyScorer2/Visualize = "True"
+s:Sc/MyScorer2/Surface = "subComponent2/ZMinusSurface"
+s:Sc/MyScorer2/OutputType = "ASCII"
+s:Sc/MyScorer2/OutputFile = "OutputVoxel"
+s:Sc/MyScorer2/IfOutputFileAlreadyExists = "Overwrite" # Increment
+b:Sc/MyScorer2/IncludeVertexInfo = "True"
+
+sv:Sc/MyScorer2/OnlyIncludeParticlesNamed = 1 "Proton"
+
+
+####################################################
+# Visualization
+#################
+###################################
+#s:Gr/MyOGL/Type = "OpenGL"
+#i:Gr/MyOGL/WidnowSizeX = 600
+#i:Gr/MyOGL/WindowSizeY = 600
+#d:Gr/MyOGL/Theta = 60 deg
+#d:Gr/MyOGL/Phi = 20 deg
+#s:Gr/MyOGL/Projection = "Perspective"
+#d:Gr/MyOGL/PerspectiveAngle = 60 deg
+#b:Gr/MyOGL/IncludeAxes = "True"
+#b:Gr/Enable = "True"
+i:Gr/Verbosity = 0
+i:Ts/NumberOfThreads = 0
+s:Gr/RefreshEvery = "Run"
+i:Ts/Seed = 777906
+b:Ts/ShowCPUTime = "True"
+# b:Gr/MyOGL/CopyOpenGLToPDF = "TRUE"
+
+sv:Ph/Default/Modules = 1 "g4em-standard_opt0"
+#b:Ts/PauseBeforeQuit = "True"
