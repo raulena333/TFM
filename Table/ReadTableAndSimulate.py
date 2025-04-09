@@ -5,6 +5,7 @@ import seaborn as sns
 import os
 import time
 import argparse
+from collections import namedtuple  # Supposedly more faster
 
 params = {
     'xtick.labelsize': 14,    
@@ -15,7 +16,17 @@ params = {
 }
 pylab.rcParams.update(params)  # Apply changes
 
-def sampleReverseCalculate(data, material, energy, angleRange, energyRange):
+# Define named tuples for better optimization
+TableData = namedtuple('TableData', ['prob_table', 'materials', 'energies'])
+HistogramMetadata = namedtuple('HistogramMetadata', ['hist', 'angle_range', 'energy_range', 'angle_step', 'energy_step', 'angle_bins', 'energy_bins'])
+
+def buildHistogramMetadata(hist, angleRange, energyRange):
+    angleBins, energyBins = hist.shape
+    angleStep = (angleRange[1] - angleRange[0]) / angleBins
+    energyStep = (energyRange[1] - energyRange[0]) / energyBins
+    return HistogramMetadata(hist, angleRange, energyRange, angleStep, energyStep, angleBins, energyBins)
+
+def sampleReverseCalculate(data, material, energy, angleRange, energyRange, materialToIndex):
     """
     Sample (angle, energy) values from a 2D histogram and reverse the variable change.
     
@@ -30,18 +41,18 @@ def sampleReverseCalculate(data, material, energy, angleRange, energyRange):
     """
 
     # Extract metadata
-    probTable = data['prob_table']
-    materials = data['materials']
-    energies = data['energies']
+    probTable = data.prob_table
+    energies = data.energies
+    
+    energy = np.round(energy, 1)
 
     # Validate and locate material and energy
-    if material not in materials:
+    if material not in materialToIndex:
         raise ValueError(f"Material '{material}' not found in the dataset.")
     if energy not in energies:
-        energy = np.round(energy, 1)
         raise ValueError(f"Energy '{energy}' not found in the dataset.")
 
-    materialIdx = np.where(materials == material)[0][0]
+    materialIdx = materialToIndex[material]
     energyIdx = np.where(energies == energy)[0][0]
 
     # Retrieve the histogram for the specified material and energy
@@ -54,18 +65,15 @@ def sampleReverseCalculate(data, material, energy, angleRange, energyRange):
     
     return realAngle, realEnergy
 
-def sampleReverseCalculateInterpolation(data, material, energy, angleRange, energyRange):
+def sampleReverseCalculateInterpolation(data, material, energy, angleRange, energyRange, materialToIndex):
     # Extract metadata
-    probTable = data['prob_table']
-    energies = data['energies']
-    materials = data['materials']
-    
-    energies = np.sort(energies)
+    probTable = data.prob_table
+    energies = np.sort(data.energies)
 
     # Get material index
-    if material not in materials:
+    if material not in materialToIndex:
         raise ValueError(f"Material '{material}' not found in data.")
-    materialIdx = np.where(materials == material)[0][0]
+    materialIdx = materialToIndex[material]
     
     # Find surrounding energy indices
     if energy < energies[0] or energy > energies[-1]:
@@ -111,11 +119,14 @@ def sampleFromHist(hist, angleRange, energyRange):
     - angle (float): Sampled angle (transformed).
     - energy (float): Sampled energy (transformed).
     """
-    hist = hist / np.sum(hist)  # Normalize the histogram
-
     # Flatten and sample using probabilities
     flatHist = hist.flatten()
-    idx = np.random.choice(len(flatHist), p=flatHist)
+    
+    # Sampling one histogram bin at a time consider pre-generating samples or using faster sampling methods like np.searchsorted() with cumulative probabilities
+    # idx = np.random.choice(len(flatHist), p=flatHist)
+    cumsum = np.cumsum(flatHist)
+    rand_val = np.random.rand()
+    idx = np.searchsorted(cumsum, rand_val, side='right')
 
     # Convert back to 2D index
     angleBins, energyBins = hist.shape
@@ -166,31 +177,6 @@ def variableChange(energy, angle, energyloss):
     angleChange = angle * np.sqrt(energy) 
     
     return energyChange, angleChange
-
-def intersectionVecWithPlane(origin, direction, planePoint, planeNormal):
-    # Normalize the ray direction
-    direction = direction / np.linalg.norm(direction)
-
-    # Calculate the dot product between the plane normal and the ray direction
-    denominator = 0
-    denominator = np.dot(planeNormal, direction)
-    
-    # If the denominator is 0, the ray is parallel to the plane, no intersection
-    if np.abs(denominator) < 1e-6:
-        return None, None
-
-    # Calculate the intersection parameter t
-    intermediate = planePoint - origin
-    t = np.dot(intermediate, planeNormal) / denominator
-
-    # If t >= 0, the intersection is in front of the ray's origin
-    if t >= 0:
-        intersection_point = origin + t * direction
-        intersection_point = np.round(intersection_point, 3)
-        
-        return intersection_point, planeNormal
-    else:
-        return None, None  # No valid intersection, it's behind the ray
 
 def plotSampledDistribution(hist, numSamples, angleRange=(0, 70), energyRange=(-0.57, 0)):
     # Generate samples
@@ -243,27 +229,19 @@ if __name__ == "__main__":
 
     bigVoxelSize = 1e3 / 2 # (mm) maximum size for the simulation voxel
     
-    normals = np.array([
-        [0, 0, 1],     # +Z face
-        [0, 0, -1],    # -Z face
-        [1, 0, 0],     # +X face
-        [-1, 0, 0],    # -X face
-        [0, 1, 0],     # +Y face
-        [0, -1, 0]     # -Y face
-    ])
-
-    centers = np.array([
-        [0, 0, 0.5],    # +Z
-        [0, 0, -0.5],   # -Z
-        [0.5, 0, 0],    # +X
-        [-0.5, 0, 0],   # -X
-        [0, 0.5, 0],    # +Y
-        [0, -0.5, 0]    # -Y
-    ])
-
     # Load the whole table
-    data = np.load(npzPath, allow_pickle=True)
-
+    
+    rawData = np.load(npzPath, allow_pickle=True)
+    
+    data = TableData(
+    prob_table=rawData['prob_table'],
+    materials=rawData['materials'],
+    energies=rawData['energies']
+    )
+    
+    # Precompute material → index mapping
+    materialToIndex = {mat: idx for idx, mat in enumerate(data.materials)}
+    
     # Plot the sampled distribution
     # plotSampledDistribution(hist, samplingN)
     
@@ -280,18 +258,16 @@ if __name__ == "__main__":
             print(f"Testing example {l+1} of {samplingN}")
         # Initial position (x, y, z)
         position = np.array([0, 0, -bigVoxelSize], dtype=float) # Current position
-        positionVoxel = np.array([0,0, -bigVoxelSize], dtype=int) # Current voxel position
         
         energyChange, angleChange = 0, 0
-        boolBigVox = True
         energy = initialEnergy
         
         while energy > 0 and checkIfInsideBigVoxel(position, bigVoxelSize):
             # Sample (angle, energy) values from the histogram
             if args.interp:
-                realAngle, realEnergy = sampleReverseCalculateInterpolation(data, material, energy, angleRange, energyRange)
+                realAngle, realEnergy = sampleReverseCalculateInterpolation(data, material, energy, angleRange, energyRange, materialToIndex)
             else:
-                realAngle, realEnergy = sampleReverseCalculate(data, material, energy, angleRange, energyRange)
+                realAngle, realEnergy = sampleReverseCalculate(data, material, energy, angleRange, energyRange, materialToIndex)
             
             # Apply the variable change to the energy loss value and angle
             energyChange, angleChange = variableChange(energy, realAngle, realEnergy)
@@ -306,35 +282,6 @@ if __name__ == "__main__":
             directionZ = np.cos(np.radians(realAngle))
             
             directionVector = np.array([directionX, directionY, directionZ])
-            
-            foundIntersection = False
-            intersection = None
-            intersectedNormal = []
-        
-            for i in range(len(normals)):
-                intersection, normal = intersectionVecWithPlane(position, directionVector, centers[i], normals[i])
-    
-                if intersection is not None:
-                    intersection = np.round(intersection, 6)  # Clean small floats
-                    intersectedNormal = normal
-                    # if args.debug:
-                    #     print(f"Intersection at {intersection} with normal {normal}")
-                    foundIntersection = True
-                    break
-                
-            if not foundIntersection:
-                if args.debug:
-                    print("No valid intersection found. Exiting loop.")
-                break  # Prevent infinite loops
-                
-            position = intersection + 1e-6 * directionVector  # Small nudge forward
-            
-            # Update voxel index
-            delta = np.array(intersectedNormal, dtype=int)
-            positionVoxel += delta
-            
-            if args.debug:
-                print(f"Position : {position}, Voxel : {positionVoxel}\n")
 
             # Handle material switch if necessary (assuming sameMaterial is a function or condition)
             if sameMaterial:
@@ -349,35 +296,35 @@ if __name__ == "__main__":
     elapsedTime = endTime - starTime
     print(f"Simulation time: {elapsedTime:.2f} seconds")
     
-    os.makedirs(savePath, exist_ok=True) # Create directory if it doesn't exist
+    # os.makedirs(savePath, exist_ok=True) # Create directory if it doesn't exist
     
-    # Plot the angle and energy distributions
-    fig, axs = plt.subplots(1, 2, figsize=(10, 6))
+    # # Plot the angle and energy distributions
+    # fig, axs = plt.subplots(1, 2, figsize=(10, 6))
 
-    sns.histplot(energyDistribution, bins=numberOfBins, edgecolor="black", color='orange', kde=False, ax=axs[0])
-    axs[0].set_xlabel(r'$\frac{\ln((E_i - E_f)/E_i)}{\sqrt{E_i}}$ \ (MeV$^{-1/2}$)')
-    axs[0].set_title('Final Energy distribution')
-    axs[0].set_yscale('log')
+    # sns.histplot(energyDistribution, bins=numberOfBins, edgecolor="black", color='orange', kde=False, ax=axs[0])
+    # axs[0].set_xlabel(r'$\frac{\ln((E_i - E_f)/E_i)}{\sqrt{E_i}}$ \ (MeV$^{-1/2}$)')
+    # axs[0].set_title('Final Energy distribution')
+    # axs[0].set_yscale('log')
          
-    sns.histplot(angleDistribution, bins=numberOfBins, edgecolor="black", color='red', kde=False, ax=axs[1])
-    axs[1].set_xlabel(r'Angle$\sqrt{E_i}$ (deg$\cdot$MeV$^{1/2}$)')
-    axs[1].set_title('Final Angles distribution')
-    axs[1].set_yscale('log')
+    # sns.histplot(angleDistribution, bins=numberOfBins, edgecolor="black", color='red', kde=False, ax=axs[1])
+    # axs[1].set_xlabel(r'Angle$\sqrt{E_i}$ (deg$\cdot$MeV$^{1/2}$)')
+    # axs[1].set_title('Final Angles distribution')
+    # axs[1].set_yscale('log')
 
-    plt.tight_layout()
-    plt.savefig(f'{savePath}OutputHistograms.pdf')
-    plt.close(fig)
+    # plt.tight_layout()
+    # plt.savefig(f'{savePath}OutputHistograms.pdf')
+    # plt.close(fig)
 
-    # Compute 2D Histogram
-    hist1, xedges1, yedges1 = np.histogram2d(angleDistribution, energyDistribution, bins=numberOfBins, range = (angleRange, energyRange))
-    finalProbabilities = hist1 / np.sum(hist1)
+    # # Compute 2D Histogram
+    # hist1, xedges1, yedges1 = np.histogram2d(angleDistribution, energyDistribution, bins=numberOfBins, range = (angleRange, energyRange))
+    # finalProbabilities = hist1 / np.sum(hist1)
 
-    fig2, axs2 = plt.subplots(figsize=(8, 6))
-    h1 = axs2.pcolormesh(xedges1, yedges1, finalProbabilities.T, cmap='Reds', shading='auto')
-    fig2.colorbar(h1, ax=axs2, label='Probability')
-    axs2.set_xlabel(r'Angle$\sqrt{E_i}$ (deg$\cdot$MeV$^{1/2}$)')
-    axs2.set_ylabel(r'$ln((E_i-E_f)/E_i)/ln\sqrt{E_i}$ (ln(MeV)$^{-1}$)')
+    # fig2, axs2 = plt.subplots(figsize=(8, 6))
+    # h1 = axs2.pcolormesh(xedges1, yedges1, finalProbabilities.T, cmap='Reds', shading='auto')
+    # fig2.colorbar(h1, ax=axs2, label='Probability')
+    # axs2.set_xlabel(r'Angle$\sqrt{E_i}$ (deg$\cdot$MeV$^{1/2}$)')
+    # axs2.set_ylabel(r'$ln((E_i-E_f)/E_i)/ln\sqrt{E_i}$ (ln(MeV)$^{-1}$)')
 
-    plt.tight_layout()
-    plt.savefig(f'{savePath}Output2DHistograms.pdf')
-    plt.close(fig2)
+    # plt.tight_layout()
+    # plt.savefig(f'{savePath}Output2DHistograms.pdf')
+    # plt.close(fig2)
