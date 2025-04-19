@@ -11,7 +11,7 @@ params = {
     'ytick.labelsize': 17,      
     'axes.titlesize': 18,
     'axes.labelsize': 18,
-    'legend.fontsize': 16
+    'legend.fontsize': 15
 }
 pylab.rcParams.update(params) 
 
@@ -111,15 +111,14 @@ if __name__ == "__main__":
                         100000, 200000, 300000, 400000, 500000, 600000, 700000, 800000, 900000, 
                         1000000, 2000000, 3000000, 4000000, 5000000, 6000000, 7000000, 8000000, 9000000, 10000000
                         ]
-    energies = np.array([50., #100., 500., 1000.
-                         ])
+    energies = np.array([20., 50., 100., 150.])
     cores = 0
     
     # Define colors for each energy level
-    colors = ['b', 'g', 'r', 'm', 'c', 'y']  # Blue, Green, Red, Magenta, Cyan, Yellow  
+    colors = ['b', 'g', 'r','m']  # Blue, Green, Red, Magenta 
     
      # Create figure
-    plt.figure(figsize=(10, 8))
+    plt.figure(figsize=(8, 6))
         
     for i, energy in enumerate(energies):
         modifyBeamEnergy(voxelPhaseFile, energy)
@@ -143,12 +142,20 @@ if __name__ == "__main__":
             print(f"Process with {histories} histories took {timeOfSimulaton:.4f} seconds")
 
         # Plot
-        plt.plot(numberOfHistories, timeOfHistories, linestyle='-',marker = '.', color=colors[i], label=f"Energy {energy}") # marker = '.' 
+        plt.plot(numberOfHistories, timeOfHistories, linestyle='-',marker = '.', color=colors[i], label=f"{energy} MeV") # marker = '.' 
                
     plt.xlabel("Number of Histories")
-    plt.ylabel("Time (seconds)")
+    plt.ylabel("Time (s)")
     # plt.title(f"Energy {energy}")
-    plt.legend()
+    plt.legend(
+        loc='best',           # Automatically chooses the best location
+        shadow=True,          # Adds a shadow behind the legend
+        fancybox=True,        # Rounded corners
+        framealpha=0.9,       # Slight transparency
+    )
+
+    
+    plt.tight_layout()
         
     plt.savefig(f"HistoryTimePlotForEnergies.pdf")
     # plt.show()

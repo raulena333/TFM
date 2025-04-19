@@ -70,13 +70,13 @@ if __name__ == "__main__":
     parser.add_argument("--mode", choices=["one", "various"], default="various", help="Select the mode to run the script. Various will create tables for later use.")
     args = parser.parse_args()
 
-    numberOfProtons = 5000
+    numberOfProtons = 1000
     dataPath = '~/G4Data/'
     voxelPhaseFile = "./MyVoxelPhaseSpace.txt"
 
     if args.mode == "various":
         # Input parameters
-        energies = [200, 175, 150, 125, 100, 75, 50, 25, 15, 10]
+        energies = [200, 175, 150, 125, 100, 75, 50, 25, 15, 10, 9]
 
         # Call the function to change input parameters
         modifyInputParameters(voxelPhaseFile, numberOfProtons)
@@ -88,7 +88,7 @@ if __name__ == "__main__":
             runTopas(voxelPhaseFile, dataPath)
             print(f'Simulation for energy {energy:.2f} finished successfully')
     else: 
-        energy = 20
+        energy = 0.07  #  0.07 MeV for G4_AIR is the lower limit (half of them go through the air)  0.06 a third of them   0.05 one tenh of them
         
         # Call the function to change input parameters
         modifyInputParameters(voxelPhaseFile, numberOfProtons)

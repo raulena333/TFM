@@ -9,7 +9,7 @@ b:Ge/World/Invisible = "TRUE"
 # TestBox:
 s:Ge/myBox/Type = "TsBox"
 s:Ge/myBox/Parent  = "World"
-s:Ge/myBox/Material = "G4_WATER"
+s:Ge/myBox/Material = "G4_AIR"
 #b:Ge/myBox/IsParallel = "True"
 d:Ge/myBox/HLX = 0.5 mm
 d:Ge/myBox/HLY = 0.5 mm
@@ -28,7 +28,7 @@ i:Ge/myBox/ZBins = 1
 s:Ge/BeamPosition/Type = "Group"
 s:Ge/BeamPosition/Parent  = "World"
 d:Ge/BeamPosition/TransX = 0. cm
-d:Ge/BeamPosition/TransY = .5 mm
+d:Ge/BeamPosition/TransY = 0. mm
 d:Ge/BeamPosition/TransZ = 1. mm
 
 ####################################################
@@ -49,9 +49,9 @@ s:So/MySource/BeamAngularDistribution = "None"
 #d:So/MySource/BeamAngularSpreadX = 0.0032 rad
 #d:So/MySource/BeamAngularSpreadY = 0.0032 rad
 s:So/MySource/BeamEnergySpectrumType = "Discrete"
-dv:So/MySource/BeamEnergySpectrumValues = 1 20 MeV
+dv:So/MySource/BeamEnergySpectrumValues = 1 0.04 MeV
 uv:So/MySource/BeamEnergySpectrumWeights = 1 1.0
-i:So/MySource/NumberOfHistoriesInRun = 5000
+i:So/MySource/NumberOfHistoriesInRun = 1000
 #i:So/MySource/NumberOfHistoriesInRandomJob = 0
 
 
@@ -64,9 +64,25 @@ b:Sc/MyScorer1/Visualize = "True"
 s:Sc/MyScorer1/Surface = "myBox/ZMinusSurface"
 s:Sc/MyScorer1/OutputType = "ASCII"
 s:Sc/MyScorer1/OutputFile = "OutputVoxel"
-s:Sc/MyScorer1/IfOutputFileAlreadyExists = "Increment"  # "Overwrite"
+s:Sc/MyScorer1/IfOutputFileAlreadyExists = "Overwrite"  # "Overwrite"
 b:Sc/MyScorer1/IncludeVertexInfo = "True"
 sv:Sc/MyScorer1/OnlyIncludeParticlesNamed = 1 "Proton"
+
+s:Sc/MyScorer2/Quantity = "EnergyDeposit"
+b:Sc/MyScorer2/Visualize = "True"
+s:Sc/MyScorer2/Component = "myBox"
+s:Sc/MyScorer2/OutputFile = "EnergyVoxel"
+s:Sc/MyScorer2/IfOutputFileAlreadyExists = "Overwrite"  # "Overwrite"
+b:Sc/MyScorer2/IncludeVertexInfo = "True"
+# sv:Sc/MyScorer2/OnlyIncludeParticlesNamed = 1 "Proton"
+
+s:Sc/MyScorer3/Quantity = "DoseToMedium"
+b:Sc/MyScorer3/Visualize = "True"
+s:Sc/MyScorer3/Component = "myBox"
+s:Sc/MyScorer3/OutputFile = "DoseVoxel"
+s:Sc/MyScorer3/IfOutputFileAlreadyExists = "Overwrite"  # "Overwrite"
+b:Sc/MyScorer3/IncludeVertexInfo = "True"
+# sv:Sc/MyScorer3/OnlyIncludeParticlesNamed = 1 "Proton"
 
 ####################################################
 # Visualization
@@ -80,7 +96,7 @@ d:Gr/MyOGL/Phi = 20 deg
 #s:Gr/MyOGL/Projection = "Perspective"
 #d:Gr/MyOGL/PerspectiveAngle = 60 deg
 # b:Gr/MyOGL/IncludeAxes = "True"
-b:Gr/Enable = "True"
+#b:Gr/Enable = "True"
 i:Gr/Verbosity = 0
 i:Ts/NumberOfThreads = 0
 s:Gr/RefreshEvery = "Run"

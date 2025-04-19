@@ -49,9 +49,9 @@ s:So/MySource/BeamAngularDistribution = "None"
 #d:So/MySource/BeamAngularSpreadX = 0.0032 rad
 #d:So/MySource/BeamAngularSpreadY = 0.0032 rad
 s:So/MySource/BeamEnergySpectrumType = "Discrete"
-dv:So/MySource/BeamEnergySpectrumValues = 1 8.5 MeV
+dv:So/MySource/BeamEnergySpectrumValues = 1 150.0 MeV
 uv:So/MySource/BeamEnergySpectrumWeights = 1 1.0
-i:So/MySource/NumberOfHistoriesInRun = 10000000
+i:So/MySource/NumberOfHistoriesInRun = 5000000
 #i:So/MySource/NumberOfHistoriesInRandomJob = 0
 
 
@@ -64,7 +64,7 @@ b:Sc/MyScorer1/Visualize = "True"
 s:Sc/MyScorer1/Surface = "myBox/ZMinusSurface"
 s:Sc/MyScorer1/OutputType = "ASCII"
 s:Sc/MyScorer1/OutputFile = "OutputVoxel"
-s:Sc/MyScorer1/IfOutputFileAlreadyExists = "Increment"  # "Overwrite"
+s:Sc/MyScorer1/IfOutputFileAlreadyExists = "Overwrite"  # "Overwrite"
 b:Sc/MyScorer1/IncludeVertexInfo = "True"
 sv:Sc/MyScorer1/OnlyIncludeParticlesNamed = 1 "Proton"
 

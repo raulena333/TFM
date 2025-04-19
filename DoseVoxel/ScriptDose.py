@@ -58,9 +58,10 @@ if __name__ == "__main__":
             doseValues[x, y] = doseValue
 
     # Plot
+    extent = [-1.5, 1.5, -1.5, 1.5]  # Define the physical size of the grid
     fig = plt.figure(figsize=(8, 6.4))
     norm = mcolors.LogNorm(vmin=np.min(doseValues) + 1e-5, vmax=np.max(doseValues))  
-    plt.imshow(doseValues, cmap='inferno', interpolation='nearest', origin='upper')  
+    plt.imshow(doseValues, cmap='inferno', interpolation='nearest', origin='upper', extent=extent)  
     plt.colorbar(label="Dose Value")
     plt.xlabel("X (mm)")
     plt.ylabel("Y (mm)")

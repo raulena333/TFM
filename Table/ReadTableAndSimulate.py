@@ -6,6 +6,8 @@ import os
 import time
 import argparse
 from collections import namedtuple  # Supposedly more faster
+# from tqdm import tqdm
+# from concurrent.futures import ProcessPoolExecutor, as_completed
 
 params = {
     'xtick.labelsize': 14,    
@@ -16,24 +18,17 @@ params = {
 }
 pylab.rcParams.update(params)  # Apply changes
 
-# Define named tuples for better optimization
-TableData = namedtuple('TableData', ['prob_table', 'materials', 'energies'])
-HistogramMetadata = namedtuple('HistogramMetadata', ['hist', 'angle_range', 'energy_range', 'angle_step', 'energy_step', 'angle_bins', 'energy_bins'])
-
-def buildHistogramMetadata(hist, angleRange, energyRange):
-    angleBins, energyBins = hist.shape
-    angleStep = (angleRange[1] - angleRange[0]) / angleBins
-    energyStep = (energyRange[1] - energyRange[0]) / energyBins
-    return HistogramMetadata(hist, angleRange, energyRange, angleStep, energyStep, angleBins, energyBins)
-
 def sampleReverseCalculate(data, material, energy, angleRange, energyRange, materialToIndex):
     """
     Sample (angle, energy) values from a 2D histogram and reverse the variable change.
     
     Parameters:
     - data (dict): Dictionary containing the histogram data.
-    - material (str): Name of the material.
-    - energy (float): Energy value.
+    - material (str): Name of the material the particle is in.
+    - energy (float): Initial energy of the proton.
+    - angleRange (tuple): Range of angles to sample from.
+    - energyRange (tuple): Range of energies to sample from.
+    - materialToIndex (dict): Dictionary mapping material names to indices.
     
     Returns:
     - realAngle (float): Real angle value.
@@ -41,9 +36,10 @@ def sampleReverseCalculate(data, material, energy, angleRange, energyRange, mate
     """
 
     # Extract metadata
-    probTable = data.prob_table
-    energies = data.energies
+    probTable = data['prob_table']
+    energies = data['energies']
     
+    # Round energy, no interpolation
     energy = np.round(energy, 1)
 
     # Validate and locate material and energy
@@ -58,14 +54,28 @@ def sampleReverseCalculate(data, material, energy, angleRange, energyRange, mate
     # Retrieve the histogram for the specified material and energy
     hist = probTable[materialIdx, energyIdx]
     
-    # Sample one (angle, energy) pair
-    angleSample, energySample = sampleFromHist(hist, angleRange, energyRange) 
-    # Reverse the variable change
-    realAngle, realEnergy = reverseVariableChange(energy, angleSample, energySample)  
+    angleSample, energySample = sampleFromHist(hist, angleRange, energyRange)
+    realAngle, realEnergy = reverseVariableChange(energy, angleSample, energySample)
     
     return realAngle, realEnergy
 
 def sampleReverseCalculateInterpolation(data, material, energy, angleRange, energyRange, materialToIndex):
+    """
+    Sample (angle, energy) values from a 2D histogram and apply interpolation and reverse the variable change.
+    
+    Parameters:
+    - data (dict): Dictionary containing the histogram data.
+    - material (str): Name of the material the particle is in.
+    - energy (float): Initial energy of the proton.
+    - angleRange (tuple): Range of angles to sample from.
+    - energyRange (tuple): Range of energies to sample from.
+    - materialToIndex (dict): Dictionary mapping material names to indices.
+    
+    Returns:
+    - realAngle (float): Real angle value.
+    - realEnergy (float): Real energy value.
+    """
+    
     # Extract metadata
     probTable = data.prob_table
     energies = np.sort(data.energies)
@@ -99,10 +109,8 @@ def sampleReverseCalculateInterpolation(data, material, energy, angleRange, ener
         weight = (energy - energyLow) / (energyUp - energyLow)
         interpolatedHist = (1 - weight) * probLow + weight * probHigh
         
-    # Sample one (angle, energy) pair
-    angleSample, energySample = sampleFromHist(interpolatedHist, angleRange, energyRange) 
-    # Reverse the variable change
-    realAngle, realEnergy = reverseVariableChange(energy, angleSample, energySample)  
+    angleSample, energySample = sampleFromHist(interpolatedHist, angleRange, energyRange)
+    realAngle, realEnergy = reverseVariableChange(energy, angleSample, energySample)
     
     return realAngle, realEnergy
 
@@ -209,14 +217,15 @@ def checkIfInsideBigVoxel(position, voxelSize):
 
 if __name__ == "__main__":
     
-    parser = argparse.ArgumentParser(description="Choose simulation mode, interpolation and debugging.")
-    parser.add_argument("--interp", action="store_true", help="Use interpolation between energy table values (default: False).")
-    parser.add_argument("--debug", action="store_true", help="Enable debug mode for sampling tests and extra output.")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--interp", action="store_true", help="Enable interpolation")
+    parser.add_argument("--debug", action="store_true", help="Debug mode")
     args = parser.parse_args()
-
+    
     nProtonsTable = 100000
     npzPath = f'./Table/4DTable{nProtonsTable}.npz' 
     samplingN = 100
+    
     material = 'G4_WATER'
     initialEnergy = 200.0
     sameMaterial = True  # Have we changed the material?
@@ -230,101 +239,49 @@ if __name__ == "__main__":
     bigVoxelSize = 1e3 / 2 # (mm) maximum size for the simulation voxel
     
     # Load the whole table
-    
-    rawData = np.load(npzPath, allow_pickle=True)
-    
-    data = TableData(
-    prob_table=rawData['prob_table'],
-    materials=rawData['materials'],
-    energies=rawData['energies']
-    )
-    
-    # Precompute material → index mapping
-    materialToIndex = {mat: idx for idx, mat in enumerate(data.materials)}
-    
+    data = np.load(npzPath, allow_pickle=True)
+    materialToIdx = {mat: idx for idx, mat in enumerate(data["materials"])}
+
     # Plot the sampled distribution
     # plotSampledDistribution(hist, samplingN)
-    
-    # Save the histogram data for the specified material and energy
-    angleDistribution = []
-    energyDistribution = []
     
     # Calculate time of simulation
     starTime = time.time()
     
-    # Start the simulation
-    for l in range(samplingN):
-        if args.debug:
-            print(f"Testing example {l+1} of {samplingN}")
-        # Initial position (x, y, z)
-        position = np.array([0, 0, -bigVoxelSize], dtype=float) # Current position
-        
-        energyChange, angleChange = 0, 0
+    for i in range(samplingN):
+        angleChange, energyChange = 0, 0
         energy = initialEnergy
+        position = np.array([0, 0, -bigVoxelSize], dtype=float)
+        velocity = np.array([0, 0, 1], dtype=float)
+        dt = 1 / 3 # step size in voxel units |v| = 1
         
+        xAxis = np.array([1, 0, 0], dtype=float)
+        yAxis = np.array([0, 1, 0], dtype=float)
+        zAxis = np.array([0, 0, 1], dtype=float)
+
         while energy > 0 and checkIfInsideBigVoxel(position, bigVoxelSize):
-            # Sample (angle, energy) values from the histogram
-            if args.interp:
+            if interp:
                 realAngle, realEnergy = sampleReverseCalculateInterpolation(data, material, energy, angleRange, energyRange, materialToIndex)
             else:
                 realAngle, realEnergy = sampleReverseCalculate(data, material, energy, angleRange, energyRange, materialToIndex)
-            
-            # Apply the variable change to the energy loss value and angle
+
             energyChange, angleChange = variableChange(energy, realAngle, realEnergy)
-            if args.debug:
-                print(f"Energy: {realEnergy}, Angle : {realAngle}\n")
+            if debug:
+                print(f"[Particle {particleId}] Energy: {realEnergy}, Angle: {realAngle}")
             energy = realEnergy
 
-            phi = np.random.uniform(0, 2 * np.pi) 
-            # Calculate the new position based on the angle and step size, for now we assume a simple straight line motion
-            directionX = np.sin(np.radians(realAngle)) * np.cos(phi)
-            directionY = np.sin(np.radians(realAngle)) * np.sin(phi)
-            directionZ = np.cos(np.radians(realAngle))
+            phi = np.random.uniform(0, 2 * np.pi)
+            newDirection = np.array([
+                np.sin(np.radians(realAngle)) * np.cos(phi),
+                np.sin(np.radians(realAngle)) * np.sin(phi),
+                np.cos(np.radians(realAngle))
+            ])
             
-            directionVector = np.array([directionX, directionY, directionZ])
+            rotationMatrix = np.stack([xAxis, yAxis, zAxis], axis=1)
+            direction = rotationMatrix @ newDirection
+            direction = direction / np.linalg.norm(direction)
 
-            # Handle material switch if necessary (assuming sameMaterial is a function or condition)
+            position += direction * dt
+
             if sameMaterial:
                 continue
-            
-        if args.debug:
-            print(f"Final Angle: {angleChange}, energy: {energyChange}")
-        angleDistribution.append(angleChange)
-        energyDistribution.append(energyChange)
-        
-    endTime = time.time()
-    elapsedTime = endTime - starTime
-    print(f"Simulation time: {elapsedTime:.2f} seconds")
-    
-    # os.makedirs(savePath, exist_ok=True) # Create directory if it doesn't exist
-    
-    # # Plot the angle and energy distributions
-    # fig, axs = plt.subplots(1, 2, figsize=(10, 6))
-
-    # sns.histplot(energyDistribution, bins=numberOfBins, edgecolor="black", color='orange', kde=False, ax=axs[0])
-    # axs[0].set_xlabel(r'$\frac{\ln((E_i - E_f)/E_i)}{\sqrt{E_i}}$ \ (MeV$^{-1/2}$)')
-    # axs[0].set_title('Final Energy distribution')
-    # axs[0].set_yscale('log')
-         
-    # sns.histplot(angleDistribution, bins=numberOfBins, edgecolor="black", color='red', kde=False, ax=axs[1])
-    # axs[1].set_xlabel(r'Angle$\sqrt{E_i}$ (deg$\cdot$MeV$^{1/2}$)')
-    # axs[1].set_title('Final Angles distribution')
-    # axs[1].set_yscale('log')
-
-    # plt.tight_layout()
-    # plt.savefig(f'{savePath}OutputHistograms.pdf')
-    # plt.close(fig)
-
-    # # Compute 2D Histogram
-    # hist1, xedges1, yedges1 = np.histogram2d(angleDistribution, energyDistribution, bins=numberOfBins, range = (angleRange, energyRange))
-    # finalProbabilities = hist1 / np.sum(hist1)
-
-    # fig2, axs2 = plt.subplots(figsize=(8, 6))
-    # h1 = axs2.pcolormesh(xedges1, yedges1, finalProbabilities.T, cmap='Reds', shading='auto')
-    # fig2.colorbar(h1, ax=axs2, label='Probability')
-    # axs2.set_xlabel(r'Angle$\sqrt{E_i}$ (deg$\cdot$MeV$^{1/2}$)')
-    # axs2.set_ylabel(r'$ln((E_i-E_f)/E_i)/ln\sqrt{E_i}$ (ln(MeV)$^{-1}$)')
-
-    # plt.tight_layout()
-    # plt.savefig(f'{savePath}Output2DHistograms.pdf')
-    # plt.close(fig2)
