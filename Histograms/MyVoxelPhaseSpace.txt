@@ -9,7 +9,7 @@ b:Ge/World/Invisible = "TRUE"
 # TestBox:
 s:Ge/myBox/Type = "TsBox"
 s:Ge/myBox/Parent  = "World"
-s:Ge/myBox/Material = "G4_AIR"
+s:Ge/myBox/Material = "G4_BONE_CORTICAL_ICRP"
 #b:Ge/myBox/IsParallel = "True"
 d:Ge/myBox/HLX = 0.5 mm
 d:Ge/myBox/HLY = 0.5 mm
@@ -49,11 +49,10 @@ s:So/MySource/BeamAngularDistribution = "None"
 #d:So/MySource/BeamAngularSpreadX = 0.0032 rad
 #d:So/MySource/BeamAngularSpreadY = 0.0032 rad
 s:So/MySource/BeamEnergySpectrumType = "Discrete"
-dv:So/MySource/BeamEnergySpectrumValues = 1 0.04 MeV
+dv:So/MySource/BeamEnergySpectrumValues = 1 12 MeV
 uv:So/MySource/BeamEnergySpectrumWeights = 1 1.0
-i:So/MySource/NumberOfHistoriesInRun = 1000
+i:So/MySource/NumberOfHistoriesInRun = 10000000
 #i:So/MySource/NumberOfHistoriesInRandomJob = 0
-
 
 ####################################################
 # Scoring
@@ -64,7 +63,7 @@ b:Sc/MyScorer1/Visualize = "True"
 s:Sc/MyScorer1/Surface = "myBox/ZMinusSurface"
 s:Sc/MyScorer1/OutputType = "ASCII"
 s:Sc/MyScorer1/OutputFile = "OutputVoxel"
-s:Sc/MyScorer1/IfOutputFileAlreadyExists = "Overwrite"  # "Overwrite"
+s:Sc/MyScorer1/IfOutputFileAlreadyExists = "Increment"  # "Overwrite"
 b:Sc/MyScorer1/IncludeVertexInfo = "True"
 sv:Sc/MyScorer1/OnlyIncludeParticlesNamed = 1 "Proton"
 
@@ -72,7 +71,7 @@ s:Sc/MyScorer2/Quantity = "EnergyDeposit"
 b:Sc/MyScorer2/Visualize = "True"
 s:Sc/MyScorer2/Component = "myBox"
 s:Sc/MyScorer2/OutputFile = "EnergyVoxel"
-s:Sc/MyScorer2/IfOutputFileAlreadyExists = "Overwrite"  # "Overwrite"
+s:Sc/MyScorer2/IfOutputFileAlreadyExists = "Increment"  # "Overwrite"
 b:Sc/MyScorer2/IncludeVertexInfo = "True"
 # sv:Sc/MyScorer2/OnlyIncludeParticlesNamed = 1 "Proton"
 
@@ -80,7 +79,7 @@ s:Sc/MyScorer3/Quantity = "DoseToMedium"
 b:Sc/MyScorer3/Visualize = "True"
 s:Sc/MyScorer3/Component = "myBox"
 s:Sc/MyScorer3/OutputFile = "DoseVoxel"
-s:Sc/MyScorer3/IfOutputFileAlreadyExists = "Overwrite"  # "Overwrite"
+s:Sc/MyScorer3/IfOutputFileAlreadyExists = "Increment"  # "Overwrite"
 b:Sc/MyScorer3/IncludeVertexInfo = "True"
 # sv:Sc/MyScorer3/OnlyIncludeParticlesNamed = 1 "Proton"
 
@@ -88,11 +87,11 @@ b:Sc/MyScorer3/IncludeVertexInfo = "True"
 # Visualization
 #################
 ###################################
-s:Gr/MyOGL/Type = "OpenGL"
-i:Gr/MyOGL/WidnowSizeX = 600
-i:Gr/MyOGL/WindowSizeY = 600
-d:Gr/MyOGL/Theta = 60 deg
-d:Gr/MyOGL/Phi = 20 deg
+#s:Gr/MyOGL/Type = "OpenGL"
+# i:Gr/MyOGL/WidnowSizeX = 600
+# i:Gr/MyOGL/WindowSizeY = 600
+# d:Gr/MyOGL/Theta = 60 deg
+# d:Gr/MyOGL/Phi = 20 deg
 #s:Gr/MyOGL/Projection = "Perspective"
 #d:Gr/MyOGL/PerspectiveAngle = 60 deg
 # b:Gr/MyOGL/IncludeAxes = "True"
@@ -105,4 +104,4 @@ b:Ts/ShowCPUTime = "True"
 # b:Gr/MyOGL/CopyOpenGLToPDF = "TRUE"
 
 sv:Ph/Default/Modules = 1 "g4em-standard_opt0"
-b:Ts/PauseBeforeQuit = "True"
+# b:Ts/PauseBeforeQuit = "True"

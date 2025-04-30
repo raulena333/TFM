@@ -9,7 +9,7 @@ b:Ge/World/Invisible = "TRUE"
 # TestBox:
 s:Ge/myBox/Type = "TsBox"
 s:Ge/myBox/Parent  = "World"
-s:Ge/myBox/Material = "G4_TISSUE_SOFT_ICRP"
+s:Ge/myBox/Material = "G4_WATER"
 #b:Ge/myBox/IsParallel = "True"
 d:Ge/myBox/HLX = 0.5 mm
 d:Ge/myBox/HLY = 0.5 mm
@@ -29,7 +29,7 @@ s:Ge/BeamPosition/Type = "Group"
 s:Ge/BeamPosition/Parent  = "World"
 d:Ge/BeamPosition/TransX = 0. cm
 d:Ge/BeamPosition/TransY = 0. cm
-d:Ge/BeamPosition/TransZ = 1. mm
+d:Ge/BeamPosition/TransZ = 2. mm
 
 ####################################################
 # Beam Source
@@ -49,9 +49,9 @@ s:So/MySource/BeamAngularDistribution = "None"
 #d:So/MySource/BeamAngularSpreadX = 0.0032 rad
 #d:So/MySource/BeamAngularSpreadY = 0.0032 rad
 s:So/MySource/BeamEnergySpectrumType = "Discrete"
-dv:So/MySource/BeamEnergySpectrumValues = 1 15.0 MeV
+dv:So/MySource/BeamEnergySpectrumValues = 1 200. MeV
 uv:So/MySource/BeamEnergySpectrumWeights = 1 1.0
-i:So/MySource/NumberOfHistoriesInRun = 100000
+i:So/MySource/NumberOfHistoriesInRun = 10000
 #i:So/MySource/NumberOfHistoriesInRandomJob = 0
 
 

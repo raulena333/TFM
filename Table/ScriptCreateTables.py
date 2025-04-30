@@ -203,20 +203,23 @@ def saveToNPZ(probabilityTable, materialList, energyList, savePath):
     
 if __name__ == "__main__":  
     # Variables    
-    numberOfProtons = [100, 1000, 10000, 100000 # 1000000, 10000000
-                       ] # Number of protons to simulate
+    numberOfProtons = [# 100, 1000, 10000, 100000, 1000000, 10000000
+                       1000000] # Number of protons to simulate
     dataPath = '~/G4Data/'
     voxelPhaseFile = './MyVoxelPhaseSpace.txt'
     fileName = 'OutputVoxel.phsp'
     
     # Input parameters
     initialEnergy = 200.
-    finalEnergy = 15.
-    stepEnergy = 0.1
+    finalEnergy = 9.
+    stepEnergy = 0.3
     energies = np.round(np.arange(initialEnergy, finalEnergy - stepEnergy, -stepEnergy), 1)
       
-    materials = ['G4_LUNG_ICRP', 'G4_WATER', 'G4_AIR', 'G4_BONE_CORTICAL_ICRP', 'G4_TISSUE_SOFT_ICRP' ] # Materials to simulate
-    densities = [1.0, 0.00120479, 1.92, 1.04, 1.03] # g/cm^3
+    materials = [#'G4_LUNG_ICRP', 
+                'G4_WATER', 
+                # 'G4_BONE_CORTICAL_ICRP', 'G4_TISSUE_SOFT_ICRP' 
+                ] # Materials to simulate
+    densities = [1.04, 1.0, 1.92, 1.03] # g/cm^3
 
     timeSimulation = []
     
@@ -259,12 +262,11 @@ if __name__ == "__main__":
         timeSimulation.append(elapsedTime)
         
     # Plot time for each table creation
-    plt.figure(figsize=(10, 8))
-    plt.plot(numberOfProtons, timeSimulation, linestyle='-',marker = '.', color="black") 
-               
-    plt.xlabel("Number of Histories")
-    plt.ylabel("Time (seconds)")
-        
-    plt.savefig(f"./RunTimeCreateTables.pdf")
-    # plt.show()
-    plt.close()
+    # plt.figure(figsize=(8, 6))
+    # plt.plot(numberOfProtons, timeSimulation, linestyle='-',marker = '.', color="black")      
+    # plt.xlabel("Number of Histories")
+    # plt.ylabel("Time (seconds)")
+    # plt.tight_layout()  
+    # plt.savefig(f"./RunTimeCreateTables.pdf")
+    # # plt.show()
+    # plt.close()

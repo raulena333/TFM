@@ -111,7 +111,7 @@ if __name__ == "__main__":
                         100000, 200000, 300000, 400000, 500000, 600000, 700000, 800000, 900000, 
                         1000000, 2000000, 3000000, 4000000, 5000000, 6000000, 7000000, 8000000, 9000000, 10000000
                         ]
-    energies = np.array([20., 50., 100., 150.])
+    energies = np.array([200., 100., 50., 10.])
     cores = 0
     
     # Define colors for each energy level
@@ -153,8 +153,6 @@ if __name__ == "__main__":
         fancybox=True,        # Rounded corners
         framealpha=0.9,       # Slight transparency
     )
-
-    
     plt.tight_layout()
         
     plt.savefig(f"HistoryTimePlotForEnergies.pdf")
