@@ -2,21 +2,7 @@ import re
 import os
 import subprocess
 import numpy as np
-import argparse
-import time
-import matplotlib.pyplot as plt
-import matplotlib.pylab as pylab
-
-# Matplotlib params
-params = {
-    'xtick.labelsize': 14,    
-    'ytick.labelsize': 14,      
-    'axes.titlesize': 14,
-    'axes.labelsize': 14,
-    'legend.fontsize': 14
-}
-pylab.rcParams.update(params)  # Apply changes
-
+from scipy.interpolate import interp1d
 
 def modifyBeamEnergy(filePath, newEnergy):
     """
@@ -103,170 +89,225 @@ def runTopas(filePath, dataPath):
     except FileNotFoundError:
         print("TOPAS executable not found. Make sure TOPAS is installed and in your PATH.")
         
-        
-def calculateAngleEnergyProbabilities(fileName,  numberOfBins):
-    """
-    Calculate and return the angles and final energies for an initial enrgy
 
-    Parameter:
-    - filePath (str): Path to the TOPAS output file.
+def calculateAngleEnergyProbabilities(fileName, material, numberOfBins):
     """
-    # Define the threshold for energy and angle
-    threshold = [0, -0.57, 70] # [maxEnergy, minEnergy, angleThreshold]
+    Calculate and return 2D histograms of angle vs. energy for both transformed and normalized methods.
+
+    Parameters:
+    - fileName (str): Path to the TOPAS output file.
+    - material (str): Material name for threshold selection.
+    - numberOfBins (int): Number of bins for 2D histogram in both angle and energy.
     
-    # Load files
-    newData = np.loadtxt(fileName)  
+    Returns:
+    - finalProbabilitiesTrans (ndarray): 2D histogram (angle vs transformed log energy).
+    - finalProbabilitiesNorm (ndarray): 2D histogram (normalized angle vs. normalized energy).
+    - maxTheta (float): Maximum angle found (degrees).
+    - finalEnergyMin (float): Minimum final energy for normalization.
+    - finalEnergyMax (float): Maximum final energy for normalization.
+    """
+    # Thresholds for transformed energy and angular filtering
+    threshold = [0, -0.6, 70]  # [maxLogE, minLogE, maxAngleDeg]
+    
+    # Load data
+    data = np.loadtxt(fileName)
     print(f'{fileName} loaded successfully.')
-    finalDirectionCosineX, finalDirectionCosineY, finalEnergy, isSign, initialEnergy = newData[:, [3,4,5,8,10]].T
-    logFinalEnergy = np.log((initialEnergy - finalEnergy) / initialEnergy)
-    
-    # Calculate variable change for energy
-    logFinalEnergy *= 1 / np.sqrt(initialEnergy)
-    
-    # Apply threshold to filter data energies
-    uniformMaxEnergy = threshold[0]
-    uniformMinEnergy = threshold[1]
-    uniformAngleThreshold = threshold[2]
-            
-    mask = (logFinalEnergy < uniformMaxEnergy) & (logFinalEnergy > uniformMinEnergy)
-    filteredFinalDirectionCosineX = finalDirectionCosineX[mask]
-    filteredFinalDirectionCosineY = finalDirectionCosineY[mask]
-    filteredIsSign = isSign[mask]
-    logFinalEnergy = logFinalEnergy[mask]
-    energy = np.mean(initialEnergy)
-    
-    # Calculate the angles and apply the energy scaling and threshold
-    finalAngles = []
-    indexToDelete = []
 
-    # Loop over each particle's direction cosines
-    for j, (directionX, directionY, sign) in enumerate(zip(filteredFinalDirectionCosineX, filteredFinalDirectionCosineY, filteredIsSign)):
-        directionZ = np.sqrt(1 - directionX**2 - directionY**2)
-            
-        # Adjust sign of directionZ based on isSign
-        if sign == 0:
-            directionZ *= -1
-        angle = np.degrees(np.arccos(directionZ))
-        
-        # Apply energy scaling to the angle
-        angle *= np.sqrt(energy)
-            
-        if angle > uniformAngleThreshold:
-            indexToDelete.append(j)
-        else:
-            finalAngles.append(angle)
-            
-    if indexToDelete:
-        indexToDelete = np.array(indexToDelete, dtype=int)
-        logFinalEnergy = np.delete(logFinalEnergy, indexToDelete)
-        
-    # Compute 2D Histogram
-    hist1, _ , _ = np.histogram2d(finalAngles, logFinalEnergy, bins=numberOfBins,  range = ([0, uniformAngleThreshold], [uniformMinEnergy, uniformMaxEnergy]))
-    finalProbabilities = hist1 / np.sum(hist1)
-        
-    return finalProbabilities
+    finalDirX, finalDirY, finalEnergy, isSign, initialEnergy = data[:, [3, 4, 5, 8, 10]].T
+    energy = np.mean(initialEnergy)
+
+    # ---------- TRANSFORMED ENERGY PATH ----------
+    logE = np.log((initialEnergy - finalEnergy) / initialEnergy)
+    logE *= 1 / np.sqrt(initialEnergy)
+
+    maskTrans = (logE < threshold[0]) & (logE > threshold[1])
+    dirX_T = finalDirX[maskTrans]
+    dirY_T = finalDirY[maskTrans]
+    sign_T = isSign[maskTrans]
+    logE_T = logE[maskTrans]
+    finalEnergy = finalEnergy[maskTrans]
+
+    dirZ_T = np.sqrt(np.clip(1 - dirX_T**2 - dirY_T**2, 0, 1))
+    dirZ_T[sign_T == 0] *= -1
+    angle = np.degrees(np.arccos(np.clip(dirZ_T, -1.0, 1.0))) 
+    angle_T = angle * np.sqrt(energy)
+
+    # Apply angular cutoff
+    angle_mask = angle_T <= threshold[2]
+    angle = angle[angle_mask]
+    angle_T = angle_T[angle_mask]
+    logE_T = logE_T[angle_mask]
+    finalEnergy = finalEnergy[angle_mask]
+    
+    # ---------- NORMALIZED ENERGY PATH ----------
+    maxTheta = np.max(angle)
+    minTheta = np.min(angle)
+    angle_N_norm = (angle - minTheta) / (maxTheta - minTheta)
+
+    # Normalize final energy for histogram
+    finalEnergyMin = np.min(finalEnergy)
+    finalEnergyMax = np.max(finalEnergy)
+    energy_Norm = (finalEnergy - finalEnergyMin) / (finalEnergyMax - finalEnergyMin)
+
+    # ---------- HISTOGRAMS ----------
+    histTrans, _, _ = np.histogram2d(angle_T, logE_T,
+                                     bins=numberOfBins,
+                                     range=([0, threshold[2]], [threshold[1], threshold[0]]))
+    finalProbabilitiesTrans = histTrans / np.sum(histTrans)
+
+    histNorm, _, _ = np.histogram2d(angle_N_norm, energy_Norm,
+                                    bins=numberOfBins,
+                                    range=([0, 1], [0, 1]))
+    finalProbabilitiesNorm = histNorm / np.sum(histNorm)
+
+    return finalProbabilitiesTrans, finalProbabilitiesNorm, maxTheta, minTheta, finalEnergyMin, finalEnergyMax
+
 
 # https://numpy.org/doc/2.2/reference/generated/numpy.savez.html
-def saveToNPZ(probabilityTable, materialList, energyList, savePath):
+def saveToNPZ(probabilityTableTrans, probabilityTableNorm, materialList, energyList, thetaMaxArrayDict, thetaMinArrayDict, 
+            energyMinArrayDict, energyMaxArrayDict, savePathTrans, savePathNorm):
     """
     Save the final 4D probability tables in a compressed NPZ file for CUDA processing.
 
     Parameters:
-    - probabilityTable (dict): Nested dict: material -> energy -> 2D numpy array
+    - probabilityTableTrans (dict): Dictionary of 2D probability tables for each material and energy
+    - probabilityTableNorm (dict): Dictionary of 2D probability tables for each material and energy
     - materialList (list): List of material names
     - energyList (list): List of energy values (float)
-    - savePath (str): Path to save the .npz file
+    - thetaMaxArrayDict (dict): Dictionary of maximum theta values for each material and energy
+    - thetaMinArrayDict (dict): Dictionary of minimum theta values for each material and energy
+    - energyMinArrayDict (dict): Dictionary of minimum energy values for each material and energy
+    - energyMaxArrayDict (dict): Dictionary of maximum energy values for each material and energy
+    - savePathTrans (str): Path to save the compressed NPZ file
+    - savePathNorm (str): Path to save the compressed NPZ file 
     """
-    num_materials = len(materialList)
-    num_energies = len(energyList)
+    numMaterials = len(materialList)
+    numEnergies = len(energyList)
     
-    os.makedirs(os.path.dirname(savePath), exist_ok=True)  # Create directory if it doesn't exist
-
+    os.makedirs(os.path.dirname(savePathTrans), exist_ok=True)
+    os.makedirs(os.path.dirname(savePathNorm), exist_ok=True)
+    
     # Get shape of 2D hist
-    angle_bins, energy_bins = probabilityTable[materialList[0]][energyList[0]].shape
+    angleBinsTrans, energyBinsTrans = probabilityTableTrans[materialList[0]][energyList[0]].shape
+    angleBinsNorm, energyBinsNorm = probabilityTableNorm[materialList[0]][energyList[0]].shape
 
     # Create 4D array
-    prob_array = np.zeros((num_materials, num_energies, angle_bins, energy_bins), dtype=np.float32)
+    probArrayTrans = np.zeros((numMaterials, numEnergies, angleBinsTrans, energyBinsTrans), dtype=np.float32)
+    probArrayNorm = np.zeros((numMaterials, numEnergies, angleBinsNorm, energyBinsNorm), dtype=np.float32)
+
+    # Create 2D arrays for thetaMax and finalEnergyMin 
+    thetaMaxArray = np.zeros((numMaterials, numEnergies), dtype=np.float32)
+    thetaMinArray = np.zeros((numMaterials, numEnergies), dtype=np.float32)
+    energyMinArray = np.zeros((numMaterials, numEnergies), dtype=np.float32)
+    energyMaxArray = np.zeros((numMaterials, numEnergies), dtype=np.float32)
 
     for i, mat in enumerate(materialList):
         for j, en in enumerate(energyList):
-            prob_array[i, j] = probabilityTable[mat][en]
-
+            probArrayNorm[i, j] = probabilityTableNorm[mat][en]
+            thetaMaxArray[i, j] = thetaMaxArrayDict[mat][en]
+            thetaMinArray[i, j] = thetaMinArrayDict[mat][en]
+            energyMinArray[i, j] = energyMinArrayDict[mat][en]
+            energyMaxArray[i, j] = energyMaxArrayDict[mat][en]
+            
+            probArrayTrans[i, j] = probabilityTableTrans[mat][en]
+         
     np.savez_compressed(
-        savePath,
-        prob_table=prob_array,
+        savePathNorm,
+        probTable= probArrayNorm,
+        thetaMax= thetaMaxArray,
+        thetaMin= thetaMinArray,
+        energyMin= energyMinArray,
+        energyMax= energyMaxArray,
+        materials= np.array(materialList),
+        energies= np.array(energyList, dtype=np.float32)
+    )
+    print(f"Saved efficient 4D CUDA table to {savePathNorm}")
+    
+    np.savez_compressed(
+        savePathTrans,
+        probTable=probArrayTrans,
         materials=np.array(materialList),
         energies=np.array(energyList, dtype=np.float32)
     )
-    print(f"Saved efficient 4D CUDA table to {savePath}")
+    print(f"Saved efficient 4D CUDA table to {savePathTrans}")
 
     
 if __name__ == "__main__":  
     # Variables    
-    numberOfProtons = [# 100, 1000, 10000, 100000, 1000000, 10000000
-                       1000000] # Number of protons to simulate
+    numberOfProtons = 10000 # Number of protons to simulate
     dataPath = '~/G4Data/'
     voxelPhaseFile = './MyVoxelPhaseSpace.txt'
     fileName = 'OutputVoxel.phsp'
     
     # Input parameters
+    numberOfBins = 100
     initialEnergy = 200.
     finalEnergy = 9.
-    stepEnergy = 0.3
-    energies = np.round(np.arange(initialEnergy, finalEnergy - stepEnergy, -stepEnergy), 1)
+    stepEnergy = 0.2
+    energies = np.round(np.arange(initialEnergy, finalEnergy, -stepEnergy), 1)
       
     materials = [#'G4_LUNG_ICRP', 
                 'G4_WATER', 
-                # 'G4_BONE_CORTICAL_ICRP', 'G4_TISSUE_SOFT_ICRP' 
+                #'G4_BONE_CORTICAL_ICRP', 'G4_TISSUE_SOFT_ICRP' 
                 ] # Materials to simulate
     densities = [1.04, 1.0, 1.92, 1.03] # g/cm^3
 
-    timeSimulation = []
+    savePathTrans = f'./Table/4DTableTrans.npz'
+    savePathNorm = f'./Table/4DTableNorm.npz'
+        
+    modifyInputParameters(voxelPhaseFile, numberOfProtons)     
+    resultsTableTrans = {}
+    resultsTableNorm = {}
     
-    for nProtons in numberOfProtons:
+    thetaMaxArray = {mat: {} for mat in materials}
+    thetaMinArray = {mat: {} for mat in materials}
+    energyMinArray = {mat: {} for mat in materials}
+    energyMaxArray = {mat: {} for mat in materials}
         
-        savePath = f'./Table/4DTable{nProtons}.npz'
-        
-        modifyInputParameters(voxelPhaseFile, nProtons)     
-        resultsTable = {}  # Dictionary to store all results before saving to .npz   
+    for material in materials:
 
-        startTime = time.time()
-        
-        for material in materials:
-
-            # Modify the material in the TOPAS file
-            modifyMaterial(voxelPhaseFile, material)
+        # Modify the material in the TOPAS file
+        modifyMaterial(voxelPhaseFile, material)
+        resultsTableTrans[material] = {}
+        resultsTableNorm[material] = {}
             
-            resultsTable[material] = {}
+        for energy in energies:  
+            modifyBeamEnergy(voxelPhaseFile, energy)  
+            runTopas(voxelPhaseFile, dataPath)
+            # Retrieve energy and angle distributions probabilities
+            if material == 'G4_BONE_CORTICAL_ICRP':
+                if energy < 12:
+                    finalProbabilitiesTrans = np.zeros((numberOfBins, numberOfBins), dtype=np.float32)
+                    finalProbabiltiesNorm = np.zeros((numberOfBins, numberOfBins), dtype=np.float32)
+                    maxTheta = 0.0
+                    minTheta = 0.0
+                    finalEnergyMin = 0.0
+                    finalEnergyMax = 0.0
+                else:
+                    finalProbabilitiesTrans, finalProbabiltiesNorm, maxTheta, minTheta, finalEnergyMin, finalEnergyMax = calculateAngleEnergyProbabilities(fileName, material, numberOfBins)
+            elif material == 'G4_TISSUE_SOFT_ICRP' or material == 'G4_LUNG_ICRP':
+                if energy < 9.5:
+                    finalProbabilitiesTrans = np.zeros((numberOfBins, numberOfBins), dtype=np.float32)
+                    finalProbabiltiesNorm = np.zeros((numberOfBins, numberOfBins), dtype=np.float32)
+                    maxTheta = 0.0
+                    minTheta = 0.0
+                    finalEnergyMin = 0.0
+                    finalEnergyMax = 0.0
+                else:
+                    finalProbabilitiesTrans, finalProbabiltiesNorm, maxTheta, minTheta, finalEnergyMin, finalEnergyMax = calculateAngleEnergyProbabilities(fileName, material, numberOfBins)
+            else:
+                finalProbabilitiesTrans, finalProbabiltiesNorm, maxTheta, minTheta, finalEnergyMin, finalEnergyMax = calculateAngleEnergyProbabilities(fileName, material, numberOfBins)
             
-            for energy in energies:  
-                # Initialize lists for energy and angle values
-                energyVec = []
-                angleVec = []
+            # Store in dictionary for NPZ saving   
+            resultsTableTrans[material][energy] = finalProbabilitiesTrans
+            resultsTableNorm[material][energy] = finalProbabiltiesNorm
                 
-                # Modify beam energy for the current run
-                modifyBeamEnergy(voxelPhaseFile, energy)  
-                # Run TOPAS simulation
-                runTopas(voxelPhaseFile, dataPath)
-                # Retrieve energy and angle distributions probabilities
-                finalProbabilities = calculateAngleEnergyProbabilities(fileName, numberOfBins=100)
-                
-                # Store in dictionary for NPZ saving   
-                resultsTable[material][energy] = finalProbabilities
+            # Store the maximum angle and minimum energy for each material
+            thetaMaxArray[material][energy] = maxTheta
+            thetaMinArray[material][energy] = minTheta
+            energyMinArray[material][energy] = finalEnergyMin
+            energyMaxArray[material][energy] = finalEnergyMax
                             
-        # Save to CUDA-optimized NPZ
-        saveToNPZ(resultsTable, materials, energies, savePath)
-        
-        timeEnd = time.time()
-        elapsedTime = timeEnd - startTime
-        timeSimulation.append(elapsedTime)
-        
-    # Plot time for each table creation
-    # plt.figure(figsize=(8, 6))
-    # plt.plot(numberOfProtons, timeSimulation, linestyle='-',marker = '.', color="black")      
-    # plt.xlabel("Number of Histories")
-    # plt.ylabel("Time (seconds)")
-    # plt.tight_layout()  
-    # plt.savefig(f"./RunTimeCreateTables.pdf")
-    # # plt.show()
-    # plt.close()
+    # Save to CUDA-optimized NPZ
+    saveToNPZ(resultsTableTrans, resultsTableNorm, materials, energies, thetaMaxArray, thetaMinArray, 
+              energyMinArray, energyMaxArray, savePathTrans, savePathNorm)

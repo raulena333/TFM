@@ -4,6 +4,8 @@ import subprocess
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.pylab as pylab
+import os
+import csv
 
 # Plot appearance settings
 params = {
@@ -79,16 +81,17 @@ if __name__ == "__main__":
     # Arguments
     dataPath = '~/G4Data/'
     voxelPhaseFile = "./MyVoxelPhaseSpaceBigCube.txt"
-    savePath = './Plots/'
-    timingPath = './Timing/'
+    timingPath = './TimingTOPAS/'
+    
+    if not os.path.exists(timingPath):
+        os.makedirs(timingPath)
 
     # Define number of protons launched and energies
-    numberOfHistories = [#10, 100, 500, 1000, 5000, 10000, 50000, 100000, 500000, 1000000, 5000000, 
-                        10000000]
+    numberOfHistories = [1000000]
     energy = 200
     modifyBeamEnergy(voxelPhaseFile, energy)
     
-    # timeOfHistories = []
+    timeOfHistories = []
     
     for numberRuns in numberOfHistories:
         modifyNumberHistories(voxelPhaseFile, numberRuns)
@@ -98,26 +101,16 @@ if __name__ == "__main__":
         timeEnd = time.time()
 
         timeOfSimulaton = timeEnd - timeStart
-        # timeOfHistories.append(timeOfSimulaton)
+        timeOfHistories.append(timeOfSimulaton)
                 
         # Calculate total elapsed time
         print(f"Process with {numberRuns} histories took {timeOfSimulaton:.4f} seconds")
         
-    # Save time of simulation
-    # data = np.column_stack((numberOfHistories, timeOfHistories))
-    # np.savetxt(
-    #     f"{timingPath}TimeOfSimulationTOPAS.txt",
-    #     data,
-    #     delimiter='\t',
-    #     fmt=('%d','%.4f'),
-    #     header='# NumberOfHistories\tTimeInSeconds',
-    #     comments=''
-    # )
-    # Plot
-    # plt.plot(numberOfHistories, timeOfHistories, linestyle='-',marker = '.', color="black")      
-    # plt.xlabel("Number of Histories")
-    # plt.ylabel("Time (s)")
-    # plt.tight_layout()  
-    # plt.savefig(f"{savePath}HistoryTimePlotTopas.pdf")
-    # # plt.show()
-    # plt.close()
+    # Save time of simulation in CSV
+    with open(timingPath + f"TimeOfSimulationBigVoxelTOPAS.csv", 'w') as file:
+        file.write(
+                    "# Number of histories; Time in seconds\n"
+                )
+        writer = csv.writer(file, delimiter=' ')
+        for histories, tIme in zip(numberOfHistories, timeOfHistories):
+            writer.writerow([histories, tIme])

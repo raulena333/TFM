@@ -41,7 +41,7 @@ def createPhysicalSpace(bigVoxel, voxelShapeBins, dt=1 / 3):
 
 if __name__ == "__main__":
 
-    savePath = "./Plots/"
+    savePath = "./PlotsTOPAS/"
     energyFilePath = "./EnergyAtBoxByBinsTOPAS.csv"
     voxelBig = (33, 33, 50)
     dt = 1 / 3
@@ -85,7 +85,7 @@ if __name__ == "__main__":
     )
     
     # Draw horizontal line at Z = 100 mm
-    ax.axhline(y=110, color='red', linestyle='--', linewidth=1.5, label='Z = 100 mm')
+    # ax.axhline(y=110, color='red', linestyle='--', linewidth=1.5, label='Z = 100 mm')
 
     cbar = plt.colorbar(im, ax=ax)
     cbar.set_label('Summed Energy Deposit (MeV)', fontsize=12)
@@ -111,7 +111,7 @@ if __name__ == "__main__":
     profileX = energyGrid[:, :, zIndex]
     profileXMean = profileX.mean(axis=1)
 
-    fig1, ax1 =plt.subplots(1, 2, figsize=(10, 6))
+    fig1, ax1 =plt.subplots(1, 2, figsize=(11, 6))
     ax1[0].plot(zRange, profileZMean)
     ax1[0].set_xlabel(r'Z voxel Index')
     ax1[0].set_ylabel(r'Energy Deposit (MeV)')
