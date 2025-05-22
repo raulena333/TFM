@@ -5,10 +5,10 @@ import seaborn as sns
 import time
 import argparse
 from tqdm import tqdm
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathos.multiprocessing import ProcessingPool as Pool
 import multiprocessing
 import logging
+import csv
 
 # python3 -m cProfile -o profile_results.prof ReadTableAndSimulateParallel.py
 # snakeviz profile_results.prof
@@ -299,10 +299,10 @@ if __name__ == "__main__":
     logging.basicConfig(filename="simulation_errors.log", level=logging.ERROR)
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 
-    nProtonsTable = 100000
+    nProtonsTable = 10000
     npzPath = f'./Table/4DTable{nProtonsTable}.npz'
     samplingN = [10, 100, 500, 1000, #5000, 10000, 50000, 100000
-                 ]
+                ]
     numberOfBins = 20
     material = 'G4_WATER'
     initialEnergy = 200.0
@@ -314,7 +314,7 @@ if __name__ == "__main__":
     rawData = np.load(npzPath, allow_pickle=True)
 
     # Fully extract arrays here
-    prob_table = rawData['prob_table']
+    prob_table = rawData['probTable']
     materials = rawData['materials']
     energies = rawData['energies']
     
@@ -356,42 +356,49 @@ if __name__ == "__main__":
         print(f"Simulation time: {endTime - starTime:.2f} seconds")
         print() 
         
-    # Plot
-    plt.plot(samplingN, timeOfHistories, linestyle='-',marker = '.', color="black")      
-    plt.xlabel("Number of Histories")
-    plt.ylabel("Time (s)")
-    plt.tight_layout()  
-    plt.savefig(f"{savePath}HistoryTimePlot.pdf")
-    # plt.show()
-    plt.close()
+    # Save results for time in CSV with two columns: samplingN and timeOfHistories
+    with open('TimeOfHistoriesParallel.csv', 'w', newline='') as file:
+        writer = csv.writer(file, delimiter=' ')
+        file.write("# SamplingN TimeOfHistories\n")
+        for n, t in zip(samplingN, timeOfHistories):
+            writer.writerow([n, t])
+   
+    # # Plot
+    # plt.plot(samplingN, timeOfHistories, linestyle='-',marker = '.', color="black")      
+    # plt.xlabel("Number of Histories")
+    # plt.ylabel("Time (s)")
+    # plt.tight_layout()  
+    # plt.savefig(f"{savePath}HistoryTimePlot.pdf")
+    # # plt.show()
+    # plt.close()
 
-    # Plot histograms
-    fig, axs = plt.subplots(1, 2, figsize=(10, 6))
+    # # Plot histograms
+    # fig, axs = plt.subplots(1, 2, figsize=(10, 6))
 
-    sns.histplot(energyDistribution, bins=numberOfBins, edgecolor="black", color='orange', kde=False, ax=axs[0]) 
-    axs[0].set_xlabel(r'$\frac{ln((E_i-E_f)/E_i)}{\sqrt{E_i}}$ (MeV$^{-1/2}$)')
-    axs[0].set_title('Final Energy distribution')
-    axs[0].set_yscale('log')
+    # sns.histplot(energyDistribution, bins=numberOfBins, edgecolor="black", color='orange', kde=False, ax=axs[0]) 
+    # axs[0].set_xlabel(r'$\frac{ln((E_i-E_f)/E_i)}{\sqrt{E_i}}$ (MeV$^{-1/2}$)')
+    # axs[0].set_title('Final Energy distribution')
+    # axs[0].set_yscale('log')
             
-    sns.histplot(angleDistribution, bins=numberOfBins, edgecolor="black", color='red', kde=False, ax=axs[1])
-    axs[1].set_xlabel(r'Angle$\sqrt{E_i}$ (deg$\cdot$MeV$^{1/2}$)')
-    axs[1].set_title('Final Angles distribution')
-    axs[1].set_yscale('log')
+    # sns.histplot(angleDistribution, bins=numberOfBins, edgecolor="black", color='red', kde=False, ax=axs[1])
+    # axs[1].set_xlabel(r'Angle$\sqrt{E_i}$ (deg$\cdot$MeV$^{1/2}$)')
+    # axs[1].set_title('Final Angles distribution')
+    # axs[1].set_yscale('log')
 
-    plt.tight_layout()
-    plt.savefig(f'{savePath}MySimulationHistograms.pdf')
-    plt.close(fig)
+    # plt.tight_layout()
+    # plt.savefig(f'{savePath}MySimulationHistograms.pdf')
+    # plt.close(fig)
 
     
-    hist1, xedges1, yedges1 = np.histogram2d(angleDistribution, energyDistribution, bins=numberOfBins)
-    finalProbabilities = hist1 / np.sum(hist1)
+    # hist1, xedges1, yedges1 = np.histogram2d(angleDistribution, energyDistribution, bins=numberOfBins)
+    # finalProbabilities = hist1 / np.sum(hist1)
 
-    fig2, axs2 = plt.subplots(figsize=(8, 6))
-    h1 = axs2.pcolormesh(xedges1, yedges1, finalProbabilities.T, cmap='Reds', shading='auto')
-    fig2.colorbar(h1, ax=axs2, label='Probability')
-    axs2.set_xlabel(r'Angle$\sqrt{E_i}$ (deg$\cdot$MeV$^{1/2}$)')
-    axs2.set_ylabel(r'$ln((E_i-E_f)/E_i)\sqrt{E_i}$ (MeV$^{-1/2}$)')
+    # fig2, axs2 = plt.subplots(figsize=(8, 6))
+    # h1 = axs2.pcolormesh(xedges1, yedges1, finalProbabilities.T, cmap='Reds', shading='auto')
+    # fig2.colorbar(h1, ax=axs2, label='Probability')
+    # axs2.set_xlabel(r'Angle$\sqrt{E_i}$ (deg$\cdot$MeV$^{1/2}$)')
+    # axs2.set_ylabel(r'$ln((E_i-E_f)/E_i)\sqrt{E_i}$ (MeV$^{-1/2}$)')
 
-    plt.tight_layout()
-    plt.savefig(f'{savePath}2DMySimulationHistograms.pdf')
-    plt.close(fig2) 
+    # plt.tight_layout()
+    # plt.savefig(f'{savePath}2DMySimulationHistograms.pdf')
+    # plt.close(fig2) 

@@ -643,7 +643,7 @@ def runMultiprocessedBatchedSim(
     numBatches = (totalSamples + batchSize - 1) // batchSize
     argsList = []
     
-    baseSeed = 189853376
+    baseSeed = 1898533
     seedSequence = np.random.SeedSequence(baseSeed)
     childSeeds = seedSequence.spawn(numBatches)
     

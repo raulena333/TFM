@@ -519,32 +519,32 @@ if __name__ == "__main__":
         # plt.savefig(f'{savePath}ProfilesEnergyDepositSimulation.pdf')
         # plt.close(fig1)
 
-        fileforEnergyDeposit = f"{csvPath}EnergyAtBoxByBinsMySimulation.csv"
-        with open(fileforEnergyDeposit, 'w', newline='') as file:
-            # Write the header manually with #
-            file.write(
-                    "# Simulation Version: 4.\n"
-                    "# Results for scorer: EnergyDeposit\n"
-                    "# Scored in component: Box\n"
-                    "# EnergyDeposit (MeV): Sum\n"
-                    f"# X in {voxelShapeBins[0]} bins of {200 / voxelShapeBins[0]} mm\n"
-                    f"# Y in {voxelShapeBins[1]} bins of {200 / voxelShapeBins[1]} mm\n"
-                    f"# Z in {voxelShapeBins[2]} bins of {200 / voxelShapeBins[2]} mm\n"
-                )
-            writer = csv.writer(file, delimiter=' ')
+    #     fileforEnergyDeposit = f"{csvPath}EnergyAtBoxByBinsMySimulation.csv"
+    #     with open(fileforEnergyDeposit, 'w', newline='') as file:
+    #         # Write the header manually with #
+    #         file.write(
+    #                 "# Simulation Version: 4.\n"
+    #                 "# Results for scorer: EnergyDeposit\n"
+    #                 "# Scored in component: Box\n"
+    #                 "# EnergyDeposit (MeV): Sum\n"
+    #                 f"# X in {voxelShapeBins[0]} bins of {200 / voxelShapeBins[0]} mm\n"
+    #                 f"# Y in {voxelShapeBins[1]} bins of {200 / voxelShapeBins[1]} mm\n"
+    #                 f"# Z in {voxelShapeBins[2]} bins of {200 / voxelShapeBins[2]} mm\n"
+    #             )
+    #         writer = csv.writer(file, delimiter=' ')
                     
-            # Write voxel data line by line
-            for x in range(energyVector3D.shape[0]):
-                for y in range(energyVector3D.shape[1]):
-                    for z in range(energyVector3D.shape[2]):
-                        value = energyVector3D[x, y, z]
-                        if value > 0:
-                            writer.writerow([x, y, z, f"{value:.6f}"])
+    #         # Write voxel data line by line
+    #         for x in range(energyVector3D.shape[0]):
+    #             for y in range(energyVector3D.shape[1]):
+    #                 for z in range(energyVector3D.shape[2]):
+    #                     value = energyVector3D[x, y, z]
+    #                     if value > 0:
+    #                         writer.writerow([x, y, z, f"{value:.6f}"])
                                     
-            totalEnergy = energyVector3D.sum()
-            writer.writerow([f"Sum : {totalEnergy:.6f}"])
+    #         totalEnergy = energyVector3D.sum()
+    #         writer.writerow([f"Sum : {totalEnergy:.6f}"])
                 
-    # Cleanup shared memory     
+    # # Cleanup shared memory     
     finally:
         shm_prob_table.close()
         shm_prob_table.unlink()

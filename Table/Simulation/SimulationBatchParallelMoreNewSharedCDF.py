@@ -172,6 +172,15 @@ def sampleFromCDFVectorizedTransformation(data: dict, material: str, energies: n
     # Get the index of the material from the lookup dictionary
     materialIdx = materialToIndex[material]
     availableEnergies = data['energies']
+    
+    # Material-specific minimum valid energy per material   
+    minEnergyByMaterial = {
+        'G4_WATER': 9.0,
+        'G4_LUNG_ICRP': 9.5,
+        'G4_BONE_CORTICAL_ICRP': 12.0,
+        'G4_TISSUE_SOFT_ICRP': 9.5
+    }
+    materialMinEnergy = minEnergyByMaterial.get(material, np.min(availableEnergies))
 
     # Clip energies to the valid range
     minEnergy = np.min(availableEnergies)
@@ -226,7 +235,7 @@ def sampleFromCDFVectorizedTransformation(data: dict, material: str, energies: n
     realAngles, realEnergies = reverseVariableChangeTransform(energies, sampledAngles, sampledEnergies)
     
     # For input energies below the minimum threshold, zero out the output
-    mask = energies < minEnergy
+    mask = energies < materialMinEnergy
     realAngles[mask] = 0
     realEnergies[mask] = 0
 
@@ -290,6 +299,15 @@ def sampleFromCDFVectorizedNormalization(
     materialIdx = materialToIndex[material]
     availableEnergies = data['energies']
     angleBins, energyBins = data['probTable'].shape[2:]
+    
+    # Material-specific minimum valid energy per material   
+    minEnergyByMaterial = {
+        'G4_WATER': 9.0,
+        'G4_LUNG_ICRP': 9.5,
+        'G4_BONE_CORTICAL_ICRP': 12.0,
+        'G4_TISSUE_SOFT_ICRP': 9.5
+    }
+    materialMinEnergy = minEnergyByMaterial.get(material, np.min(availableEnergies))
 
     minEnergy = np.min(availableEnergies)
     maxEnergy = np.max(availableEnergies)
@@ -306,6 +324,9 @@ def sampleFromCDFVectorizedNormalization(
 
     lowerEnergy = availableEnergies[lowerIndices]
     upperEnergy = availableEnergies[upperIndices]
+    
+    # print('Lower energy: ', lowerEnergy)
+    # print('Upper energy: ', upperEnergy)
 
     # Interpolation weights, only applied where energy >= minEnergy
     weights = np.where(
@@ -313,6 +334,7 @@ def sampleFromCDFVectorizedNormalization(
         (roundedEnergies - lowerEnergy) / (upperEnergy - lowerEnergy), 
         0.0
     ).astype(np.float32)
+    wSmooth = weights * weights * (3 - 2 * weights)
 
     rand1 = np.random.random(size=energies.shape).astype(np.float32)
     rand2 = np.random.random(size=energies.shape).astype(np.float32)
@@ -346,22 +368,21 @@ def sampleFromCDFVectorizedNormalization(
                 cdfs, angleBins, energyBins, angleEdges, energyEdges,
                 angleStep, energyStep, outAngles, outEnergies
             )
-
+    
     # Final interpolation only for energies >= minEnergy
-    interpolateMask = energies >= minEnergy
+    interpolateMask = energies >= materialMinEnergy
+    # print(f'Interpolate mask: {interpolateMask}')
     sampledAngles = np.where(
         interpolateMask,
         (1.0 - weights) * sampledAnglesLower + weights * sampledAnglesUpper,
-        sampledAnglesLower
+        0.0
     )
     sampledEnergies = np.where(
         interpolateMask,
         (1.0 - weights) * sampledEnergiesLower + weights * sampledEnergiesUpper,
-        sampledEnergiesLower
+        0.0
     )
-
     return sampledAngles, sampledEnergies
-
 
 # --------------- COMMON FUNCTIONS ---------------
 @numba.jit(nopython=True, inline = 'always')
@@ -496,8 +517,11 @@ def simulateBatchParticlesVectorized(
         energy[active] = realEnergies
     
         # Print interesting data
-        #print(f"EnergyActive: {energyActive}, SampleEnergies: {realEnergies}, energyLossPerStep: {energyLossPerStep}")
-        #print(f"SampleAngles: {realAngles}, Position: {position[active]}")
+        # print(f"EnergyActive: {energyActive}") 
+        # print(f"SampleEnergies: {realEnergies}")
+        # print(f"EnergyLossPerStep: {energyLossPerStep}")
+        # print(f"SampleAngles: {realAngles}, Position: {position[active]}")
+        
         calculateEnergyDepositBinBatch(
             position[active], bigVoxelSize, energyLossPerStep,
             energyDepositedVector, energyDepositedVector.shape
@@ -527,7 +551,7 @@ def simulateBatchParticlesVectorized(
         
         # Update position
         position[active] += velocity[active] * dt
-
+         
         # Check if particles are still active
         withinBounds = np.all(
             (position[active] >= -bigVoxelSize) & (position[active] <= bigVoxelSize),
@@ -637,7 +661,7 @@ def runMultiprocessedBatchedSim(
     numBatches = (totalSamples + batchSize - 1) // batchSize
     argsList = []
     
-    baseSeed = 189853376
+    baseSeed = 76743563
     seedSequence = np.random.SeedSequence(baseSeed)
     childSeeds = seedSequence.spawn(numBatches)
     
@@ -734,7 +758,7 @@ if __name__ == "__main__":
     
     # Shared settings
     samplingN = 1000000
-    material = 'G4_WATER'
+    material = 'G4_BONE_CORTICAL_ICRP'
     initialEnergy = 200.  # MeV
     bigVoxelSize = np.array((33.3333, 33.33333, 50), dtype=np.float64)
     voxelShapeBins = (50, 50, 300)
@@ -800,23 +824,13 @@ if __name__ == "__main__":
         # Remove unnecessary keys from data to free memory
         for key in ['thetaMax', 'thetaMin', 'energyMin', 'energyMax']:
             del data[key]
-        # energy = 15.
-        # idx = int(np.argmin(np.abs(energies - energy)))
-        # plotSamplingDistribution(data, material, idx, materialToIndex, cdfs, method=method, N=10000000, binEdges=binEdges)
     else:
         cdfs = buildCdfsFromProbTable(probTable)
-        # energy = 15.
-        # idx = int(np.argmin(np.abs(energies - energy)))
-        # plotSamplingDistribution(data, material, idx, materialToIndex, cdfs, method=method, N=10000000)
-        
-    
-    # --- PREBUILD SAMPLERS --- Only for slow interpolation mode
-    # prebuildSamplers(
-    #     data,
-    #     angleRange,
-    #     energyRange,
-    #     materialToIndex
-    # )
+
+    # energy = 9.6567
+    # idx = int(np.argmin(np.abs(energies - energy)))
+    # print(idx, cdfs[0][idx])
+    # print(np.any(cdfs[0][idx] != 0))
     
     # Shared memory
     energyDeposited = np.zeros(voxelShapeBins, dtype=np.float32)
