@@ -242,6 +242,97 @@ def sampleFromCDFVectorizedTransformation(data: dict, material: str, energies: n
     return realAngles, realEnergies
 
 
+def sampleFromCDFVectorizedTransformationInterpolation(data: dict, material: str, energies: np.ndarray, materialToIndex: dict, cdfs: np.ndarray,
+        binEdges: np.ndarray, angleStep : float, energyStep : float):
+    # Get the index of the material from the lookup dictionary
+    materialIdx = materialToIndex[material]
+    availableEnergies = data['energies']
+    
+    # Material-specific minimum valid energy per material   
+    minEnergyByMaterial = {
+        'G4_WATER': 9.0,
+        'G4_LUNG_ICRP': 9.5,
+        'G4_BONE_CORTICAL_ICRP': 12.0,
+        'G4_TISSUE_SOFT_ICRP': 9.5
+    }
+    materialMinEnergy = minEnergyByMaterial.get(material, np.min(availableEnergies))
+
+    # Clip energies to the valid range
+    minEnergy = np.min(availableEnergies)
+    maxEnergy = np.max(availableEnergies)
+    roundedEnergies = np.clip(np.round(energies, 1), minEnergy, maxEnergy)
+
+    reversedEnergies = availableEnergies[::-1]
+    insertPos = np.searchsorted(reversedEnergies, roundedEnergies, side='left')
+    insertPos = np.clip(insertPos, 1, len(reversedEnergies) - 1)
+
+    upperIndices = len(availableEnergies) - 1 - (insertPos - 1)
+    lowerIndices = np.clip(upperIndices - 1, 0, len(availableEnergies) - 1)
+    upperIndices = np.clip(upperIndices, 0, len(availableEnergies) - 1)
+
+    lowerEnergy = availableEnergies[lowerIndices]
+    upperEnergy = availableEnergies[upperIndices]
+
+    # Compute correct index back in original (descending) energy array
+    weights = np.where(
+        upperEnergy != lowerEnergy, 
+        (roundedEnergies - lowerEnergy) / (upperEnergy - lowerEnergy), 
+        0.0
+    ).astype(np.float32)
+    
+    rand1 = np.random.random(size=energies.shape).astype(np.float32)
+    rand2 = np.random.random(size=energies.shape).astype(np.float32)
+
+    sampledAnglesLower = np.zeros_like(energies, dtype=np.float32)
+    sampledEnergiesLower = np.zeros_like(energies, dtype=np.float32)
+    sampledAnglesUpper = np.zeros_like(energies, dtype=np.float32)
+    sampledEnergiesUpper = np.zeros_like(energies, dtype=np.float32)
+
+    # Initialize binning configuration for interpolation of CDF samples
+    angleBins, energyBins = data['probTable'].shape[2:]
+    
+    # Use global binEdges shared across all materials and energies
+    angleEdges = binEdges[0, :angleBins + 1]
+    energyEdges = binEdges[1, :energyBins + 1]
+    
+    for (indices, rand, outAngles, outEnergies) in [
+        (lowerIndices, rand1, sampledAnglesLower, sampledEnergiesLower),
+        (upperIndices, rand2, sampledAnglesUpper, sampledEnergiesUpper)
+    ]:
+        uniqueEnergyIndices = np.unique(indices)
+        for energyIdx in uniqueEnergyIndices:
+            idxs = np.where(indices == energyIdx)[0].astype(np.int32)
+
+            sampleCDFForEnergyGroup(
+                materialIdx, energyIdx, idxs, rand[idxs],
+                cdfs, angleBins, energyBins,
+                angleEdges, energyEdges, angleStep, energyStep,
+                outAngles, outEnergies
+            )
+
+    # Linear interpolation between lower and upper
+    interpolateMask = energies >= materialMinEnergy
+    sampledAngles = np.where(
+        interpolateMask,
+        (1.0 - weights) * sampledAnglesLower + weights * sampledAnglesUpper,
+        0.0
+    )
+    sampledEnergies = np.where(
+        interpolateMask,
+        (1.0 - weights) * sampledEnergiesLower + weights * sampledEnergiesUpper,
+        0.0
+    )
+
+    # Transform back to physical space
+    realAngles, realEnergies = reverseVariableChangeTransform(energies, sampledAngles, sampledEnergies)
+
+    # Mask low-energy particles
+    realAngles[~interpolateMask] = 0
+    realEnergies[~interpolateMask] = 0
+    
+    return realAngles, realEnergies
+
+
 # --------------- NORMALIZATION VARIABLE --------------
 def buildCdfsAndCompactBins(data: dict) -> Tuple[np.ndarray, np.ndarray]:
     probTable = data['probTable']
@@ -801,7 +892,7 @@ if __name__ == "__main__":
     
     # Shared settings
     samplingN = 1000000
-    material = 'G4_BONE_CORTICAL_ICRP'
+    material = 'G4_WATER'
     initialEnergy = 200.  # MeV
     bigVoxelSize = np.array((33.3333, 33.33333, 50), dtype=np.float64)
     voxelShapeBins = (50, 50, 300)

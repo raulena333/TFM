@@ -286,6 +286,17 @@ def reverseVariableChangeNormalized(normalizedAngle, normalizedEnergy, thetaMax,
     realEnergy = energyMin + normalizedEnergy * (energyMax - energyMin)
     return realAngle, realEnergy
 
+@numba.jit(nopython=True, inline = 'always') 
+def catMullRomInterpolation(f_1, f0, f1, f2, t):    
+    t2 = t * t
+    t3 = t2 * t
+    return 0.5 * (
+        (2.0 * f0) + 
+        (-f_1 + f1) * t + 
+        (2.0 * f_1 - 5.0 * f0 + 4.0 * f1 - f2) * t2 + 
+        (-f_1 + 3.0 * f0 - 3.0 * f1 +f2) * t3
+    ) 
+
 # --------------- NORMALIZATION VARIABLE ---------------
 def sampleFromCDFVectorizedNormalization(
     data: dict, 
@@ -307,7 +318,7 @@ def sampleFromCDFVectorizedNormalization(
         'G4_TISSUE_SOFT_ICRP': 9.5
     }
     
-   # Map material names to indices
+    # Map material names to indices
     materialIndices = np.array([materialToIndex[mat] for mat in materials])
 
     # Create a NumPy array aligned with materialToIndex for faster lookup
@@ -387,6 +398,103 @@ def sampleFromCDFVectorizedNormalization(
 
     return sampledAngles, sampledEnergies
 
+def sampleFromCDFVectorizedNormalizationCubic(    
+    data: dict, 
+    materials: np.ndarray, 
+    energies: np.ndarray, 
+    materialToIndex: dict,
+    cdfs: np.ndarray, 
+    binEdges: np.ndarray
+) -> Tuple[np.ndarray, np.ndarray]:
+    
+    materialIndices = np.array([materialToIndex[mat] for mat in materials])
+    availableEnergies = data['energies']
+    angleBins, energyBins = data['probTable'].shape[2:]
+    
+    minEnergyByMaterial = {
+        'G4_WATER': 9.3,
+        'G4_LUNG_ICRP': 9.8,
+        'G4_BONE_CORTICAL_ICRP': 12.7,
+        'G4_TISSUE_SOFT_ICRP': 9.8
+    }
+    
+    # Map material names to indices
+    materialIndices = np.array([materialToIndex[mat] for mat in materials])
+
+    # Create a NumPy array aligned with materialToIndex for faster lookup
+    minEnergyLookup = np.array([
+        minEnergyByMaterial.get(mat, minEnergy) for mat in materialToIndex.keys()
+    ], dtype=np.float32)
+    materialMinEnergies = minEnergyLookup[materialIndices]
+
+    minEnergy = np.min(availableEnergies)
+    maxEnergy = np.max(availableEnergies)
+    roundedEnergies = np.clip(np.round(energies, 1), minEnergy, maxEnergy)
+
+    # Find lower and upper interpolation indices for each energy
+    reversedEnergies = availableEnergies[::-1]
+    insertPos = np.searchsorted(reversedEnergies, roundedEnergies, side='left')
+    insertPos = np.clip(insertPos, 1, len(reversedEnergies) - 1)
+    
+    base = len(availableEnergies) - 1
+    i1 = base - insertPos
+    i0 = np.clip(i1 - 1, 0, base)
+    i2 = np.clip(i1 + 1, 0, base)
+    i_1 = np.clip(i1 - 2, 0, base)
+
+    e0 = availableEnergies[i0]
+    e1 = availableEnergies[i1]
+    
+    weights = np.where(e1 != e0, (roundedEnergies - e0) / (e1 - e0), 0.0).astype(np.float32)
+
+    rand = np.random.random(size=energies.shape).astype(np.float32)
+    
+    out = {}
+    for label, indices in zip(
+        ['_1', '0', '1', '2'], [i_1, i0, i1, i2]
+    ):
+        out[label + '_angles'] = np.zeros_like(energies, dtype=np.float32)
+        out[label + '_energies'] = np.zeros_like(energies, dtype=np.float32)
+
+        uniquePairs = set(zip(materialIndices, indices))
+        for matIdx, energyIdx in uniquePairs:
+            idxs = np.where((materialIndices == matIdx) & (indices == energyIdx))[0].astype(np.int32)
+
+            angleEdges = binEdges[matIdx, energyIdx, 0, :angleBins + 1]
+            energyEdges = binEdges[matIdx, energyIdx, 1, :energyBins + 1]
+
+            if angleEdges[0] == angleEdges[-1] or energyEdges[0] == energyEdges[-1]:
+                out[label + '_angles'][idxs] = 0.0
+                out[label + '_energies'][idxs] = 0.0
+                continue
+
+            angleStep = angleEdges[1] - angleEdges[0]
+            energyStep = energyEdges[1] - energyEdges[0]
+
+            sampleCDFForEnergyGroup(
+                matIdx, energyIdx, idxs, rand[idxs],
+                cdfs, angleBins, energyBins, angleEdges, energyEdges,
+                angleStep, energyStep, out[label + '_angles'], out[label + '_energies']
+            )
+
+    interpolateMask = energies >= materialMinEnergies
+    sampledAngles = np.where(
+        interpolateMask,
+        catMullRomInterpolation(
+            out['_1_angles'], out['0_angles'], out['1_angles'], out['2_angles'], weights
+        ),
+        0.0
+    )
+    sampledEnergies = np.where(
+        interpolateMask,
+        catMullRomInterpolation(
+            out['_1_energies'], out['0_energies'], out['1_energies'], out['2_energies'], weights
+        ),
+        0.0
+    )
+
+    return sampledAngles, sampledEnergies
+    
 # --------------- COMMON FUNCTIONS ----------------
 @numba.jit(nopython=True, inline = 'always')
 def sampleCDFForEnergyGroup(materialIdx, energyIdx, sampleIndices, randValues, cdfs,
@@ -488,7 +596,7 @@ def sampleFromCDF(
     elif method == "normalization":
         if binEdges is None:
             raise ValueError("Bin edges must be provided for 'normalization' method.")
-        return sampleFromCDFVectorizedNormalization(
+        return sampleFromCDFVectorizedNormalizationCubic(
             data=data,
             materials=materials,
             energies=energies,

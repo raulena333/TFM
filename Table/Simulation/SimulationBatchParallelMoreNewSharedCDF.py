@@ -661,7 +661,7 @@ def runMultiprocessedBatchedSim(
     numBatches = (totalSamples + batchSize - 1) // batchSize
     argsList = []
     
-    baseSeed = 76743563
+    baseSeed = 7674356
     seedSequence = np.random.SeedSequence(baseSeed)
     childSeeds = seedSequence.spawn(numBatches)
     
@@ -758,7 +758,7 @@ if __name__ == "__main__":
     
     # Shared settings
     samplingN = 1000000
-    material = 'G4_BONE_CORTICAL_ICRP'
+    material = 'G4_WATER'
     initialEnergy = 200.  # MeV
     bigVoxelSize = np.array((33.3333, 33.33333, 50), dtype=np.float64)
     voxelShapeBins = (50, 50, 300)
