@@ -124,48 +124,6 @@ def reverseVariableChangeTransform(initialEnergies, angles, energies):
     realAngles = angles / np.sqrt(initialEnergies)
     realEnergies = initialEnergies * (1.0 - np.exp(energies * np.sqrt(initialEnergies)))
     return realAngles, realEnergies                
-                
-# --------------- TRANSFORMATION VARIABLE --------------
-def sampleReverseCalculateInterpolation(data : dict, material : str, energy : float, 
-        angleRange : tuple,  energyRange : tuple,  materialToIndex : dict):
-    probTable = data['probTable']
-    energies = np.sort(data['energies'])
-
-    if energy < 9.:
-        return 0, 0
-    if material not in materialToIndex:
-        raise ValueError(f"Material '{material}' not found in data.")
-        
-    materialIdx = materialToIndex[material]
-    if energy < energies[0] or energy > energies[-1]:
-        raise ValueError(f"Energy {energy} out of bounds ({energies[0]} - {energies[-1]})")
-
-    lowerIndex = np.searchsorted(energies, energy) - 1
-    upperIndex = lowerIndex + 1
-    lowerIndex = max(0, lowerIndex)
-    upperIndex = min(len(energies) - 1, upperIndex)
-
-    energyLow = energies[lowerIndex]
-    energyUp = energies[upperIndex]
-    probLow = probTable[materialIdx, lowerIndex]
-    probHigh = probTable[materialIdx, upperIndex]
-
-    if energyUp == energyLow:
-        hist = probLow
-    else:
-        weight = (energy - energyLow) / (energyUp - energyLow)
-        hist = (1 - weight) * probLow + weight * probHigh
-
-    cache_key = (materialIdx, lowerIndex, upperIndex, round(weight, 4))  # tuple for unique key
-
-    if cache_key not in samplerCache:
-        samplerCache[cache_key] = HistogramSampler(hist, angleRange, energyRange)
-
-    sampler = samplerCache[cache_key]
-    angleSample, energySample = sampler.sample()
-    realAngle, realEnergy = reverseVariableChangeTransform(energy, angleSample, energySample)
-
-    return realAngle, realEnergy   
 
 # --------------- TRANSFORMATION VARIABLE ---------------       
 def sampleFromCDFVectorizedTransformation(data: dict, material: str, energies: np.ndarray, materialToIndex: dict, cdfs: np.ndarray,
@@ -269,51 +227,6 @@ def buildCdfsAndCompactBins(data: dict) -> Tuple[np.ndarray, np.ndarray]:
 
     return cdfs, binEdges
 
-# --------------- NORMALIZATION VARIABLE --------------
-@numba.jit(nopython=True, inline = 'always') 
-def reverseVariableChangeNormalized(normalizedAngle, normalizedEnergy, thetaMax, thetaMin, energyMin, energyMax):
-    realAngle = normalizedAngle * (thetaMax - thetaMin) + thetaMin
-    realEnergy = energyMin + normalizedEnergy * (energyMax - energyMin)
-    return realAngle, realEnergy
-
-# --------------- NORMALIZATION VARIABLE -------------
-# def pchip_interpolate_1d(f_1, f0, f1, f2, t):
-#     """
-#     Apply 1D PCHIP interpolation using 4 neighboring values.
-#     Each set (f_1, f0, f1, f2) is interpolated at location t ∈ [0, 1].
-#     """
-#     # Create x-grid centered on f0-f1 region
-#     x = np.array([-1, 0, 1, 2], dtype=np.float32)
-#     y = np.stack([f_1, f0, f1, f2], axis=-1)  # shape: (N, 4)
-    
-#     # Perform PCHIP interpolation per row
-#     interpolated = np.zeros_like(f0)
-#     for i in range(f0.shape[0]):
-#         interpolator = PchipInterpolator(x, y[i], extrapolate=True)
-#         interpolated[i] = interpolator(t[i])
-#     return interpolated
-
-# def pchip_interpolate_1d(f_1, f0, f1, f2, t):
-#     """
-#     Vectorized PCHIP interpolation using scipy's pchip_interpolate.
-#     Inputs:
-#         - f_1, f0, f1, f2: arrays of shape (N,)
-#         - t: interpolation location array of shape (N,), values in [0, 1]
-#     Output:
-#         - interpolated values at t ∈ [0, 1]
-#     """
-#     x = np.array([-1.0, 0.0, 1.0, 2.0], dtype=np.float32)  # fixed x for all
-#     y_all = np.stack([f_1, f0, f1, f2], axis=1)            # shape (N, 4)
-#     t_query = t + 0.0  # move t from [0, 1] to relative scale on x
-
-#     # Vectorized interpolation via list comprehension (faster than loop with PchipInterpolator)
-#     interpolated = np.array([
-#         pchip_interpolate(x, y_row, t_val)
-#         for y_row, t_val in zip(y_all, t_query)
-#     ], dtype=np.float32)
-
-#     return interpolated
-
 # --------------- NORMALIZATION VARIABLE -------------
 @numba.jit(nopython=True, inline = 'always') 
 def catMullRomInterpolation(f_1, f0, f1, f2, t):    
@@ -325,114 +238,6 @@ def catMullRomInterpolation(f_1, f0, f1, f2, t):
         (2.0 * f_1 - 5.0 * f0 + 4.0 * f1 - f2) * t2 + 
         (-f_1 + 3.0 * f0 - 3.0 * f1 +f2) * t3
     ) 
-    
-
-
-# def sampleFromCDFVectorizedNormalizationCubic(
-#     data: dict, 
-#     material: str, 
-#     energies: np.ndarray, 
-#     materialToIndex: dict,
-#     cdfs: np.ndarray, 
-#     binEdges: np.ndarray
-# ) -> Tuple[np.ndarray, np.ndarray]:
-
-#     materialIdx = materialToIndex[material]
-#     availableEnergies = data['energies']
-#     angleBins, energyBins = data['probTable'].shape[2:]
-    
-#     # Material-specific minimum valid energy per material   
-#     minEnergyByMaterial = {
-#         'G4_WATER': 9.3,
-#         'G4_LUNG_ICRP': 9.8,
-#         'G4_BONE_CORTICAL_ICRP': 12.0,
-#         'G4_TISSUE_SOFT_ICRP': 9.8
-#     }
-#     materialMinEnergy = minEnergyByMaterial.get(material, np.min(availableEnergies))
-
-#     minEnergy = np.min(availableEnergies)
-#     maxEnergy = np.max(availableEnergies)
-#     # roundedEnergies = np.clip(np.round(energies, 1), minEnergy, maxEnergy)
-#     roundedEnergies = np.clip(energies, minEnergy, maxEnergy)
-
-#     # Interpolation setup
-#     reversedEnergies = availableEnergies[::-1]
-#     insertPos = np.searchsorted(reversedEnergies, roundedEnergies, side='left')
-#     insertPos = np.clip(insertPos, 1, len(reversedEnergies) - 2)
-
-#     base = len(availableEnergies) - 1
-#     i1 = base - insertPos
-#     i0 = np.clip(i1 - 1, 0, base)
-#     i2 = np.clip(i1 + 1, 0, base)
-#     i_1 = np.clip(i1 - 2, 0, base)
-
-#     e0 = availableEnergies[i0]
-#     e1 = availableEnergies[i1]
-    
-#     # print('Lower energy: ', lowerEnergy)
-#     # print('Upper energy: ', upperEnergy)
-
-#     # Interpolation weights, only applied where energy >= minEnergy
-#     weights = np.where(
-#         e1 != e0,
-#         (roundedEnergies - e0) / (e1 - e0),
-#         0.0
-#     ).astype(np.float32)
-
-#     rand = np.random.random(size=energies.shape).astype(np.float32)
-
-#     out = {}
-#     for label, indices in zip(
-#         ['_1', '0', '1', '2'], [i_1, i0, i1, i2]
-#     ):
-#         out[label + '_angles'] = np.zeros_like(energies, dtype=np.float32)
-#         out[label + '_energies'] = np.zeros_like(energies, dtype=np.float32)
-
-#         uniqueEnergyIndices = np.unique(indices)
-#         for energyIdx in uniqueEnergyIndices:
-#             idxs = np.where(indices == energyIdx)[0].astype(np.int32)
-
-#             angleEdges = binEdges[materialIdx, energyIdx, 0, :angleBins + 1]
-#             energyEdges = binEdges[materialIdx, energyIdx, 1, :energyBins + 1]
-
-#             if angleEdges[0] == angleEdges[-1] or energyEdges[0] == energyEdges[-1]:
-#                 out[label + '_angles'][idxs] = 0.0
-#                 out[label + '_energies'][idxs] = 0.0
-#                 continue
-
-#             angleStep = angleEdges[1] - angleEdges[0]
-#             energyStep = energyEdges[1] - energyEdges[0]
-
-#             sampleCDFForEnergyGroup(
-#                 materialIdx, energyIdx, idxs, rand[idxs],
-#                 cdfs, angleBins, energyBins, angleEdges, energyEdges,
-#                 angleStep, energyStep, out[label + '_angles'], out[label + '_energies']
-#             )
-
-#     aboveMinEnergy = energies >= materialMinEnergy
-#     braggPeak = (roundedEnergies < 40) | (roundedEnergies >= materialMinEnergy)
-#     interpolateMask = aboveMinEnergy & braggPeak
-
-#     # Use Catmull-Rom interpolation where allowed, else use direct samples from i1
-#     sampledAngles = np.where(
-#         interpolateMask,
-#         catMullRomInterpolation(
-#             out['_1_angles'], out['0_angles'], out['1_angles'], out['2_angles'], weights
-#         ),
-#         out['1_angles']
-#     )
-#     sampledEnergies = np.where(
-#         interpolateMask,
-#         catMullRomInterpolation(
-#             out['_1_energies'], out['0_energies'], out['1_energies'], out['2_energies'], weights
-#         ),
-#         out['1_energies']
-#     )
-    
-#     sampledEnergies[~aboveMinEnergy] = 0.0
-#     sampledAngles[~aboveMinEnergy] = 0.0
-
-#     return sampledAngles, sampledEnergies
     
 # --------------- NORMALIZATION VARIABLE -------------
 def sampleFromCDFVectorizedNormalizationCubic(
@@ -475,9 +280,6 @@ def sampleFromCDFVectorizedNormalizationCubic(
 
     e0 = availableEnergies[i0]
     e1 = availableEnergies[i1]
-    
-    # print('Lower energy: ', lowerEnergy)
-    # print('Upper energy: ', upperEnergy)
 
     # Interpolation weights, only applied where energy >= minEnergy
     weights = np.where(
@@ -534,161 +336,6 @@ def sampleFromCDFVectorizedNormalizationCubic(
 
     return sampledAngles, sampledEnergies
 
-# def sampleFromCDFVectorizedNormalizationCubic(
-#     data: dict, 
-#     material: str, 
-#     energies: np.ndarray, 
-#     materialToIndex: dict,
-#     cdfs: np.ndarray, 
-#     binEdges: np.ndarray
-# ) -> Tuple[np.ndarray, np.ndarray]:
-
-#     materialIdx = materialToIndex[material]
-#     availableEnergies = data['energies']
-#     angleBins, energyBins = data['probTable'].shape[2:]
-    
-#     # Material-specific minimum valid energy per material   
-#     minEnergyByMaterial = {
-#         'G4_WATER': 9.3,
-#         'G4_LUNG_ICRP': 9.8,
-#         'G4_BONE_CORTICAL_ICRP': 12.0,
-#         'G4_TISSUE_SOFT_ICRP': 9.8
-#     }
-#     materialMinEnergy = minEnergyByMaterial.get(material, np.min(availableEnergies))
-
-#     minEnergy = np.min(availableEnergies)
-#     maxEnergy = np.max(availableEnergies)
-#     roundedEnergies = np.clip(energies, minEnergy, maxEnergy)
-
-#     reversedEnergies = availableEnergies[::-1]
-#     insertPos = np.searchsorted(reversedEnergies, roundedEnergies, side='left')
-#     insertPos = np.clip(insertPos, 1, len(reversedEnergies) - 2)
-
-#     base = len(availableEnergies) - 1
-#     i1 = base - insertPos
-#     i0 = np.clip(i1 - 1, 0, base)
-#     i2 = np.clip(i1 + 1, 0, base)
-#     i_1 = np.clip(i1 - 2, 0, base)
-
-#     e0 = availableEnergies[i0]
-#     e1 = availableEnergies[i1]
-
-#     # Interpolation weights only where e1 != e0
-#     weights = np.where(
-#         e1 != e0,
-#         (roundedEnergies - e0) / (e1 - e0),
-#         0.0
-#     ).astype(np.float32)
-
-#     rand = np.random.random(size=energies.shape).astype(np.float32)
-
-#     out = {}
-#     for label, indices in zip(
-#         ['_1', '0', '1', '2'], [i_1, i0, i1, i2]
-#     ):
-#         out[label + '_angles'] = np.zeros_like(energies, dtype=np.float32)
-#         out[label + '_energies'] = np.zeros_like(energies, dtype=np.float32)
-
-#         uniqueEnergyIndices = np.unique(indices)
-#         for energyIdx in uniqueEnergyIndices:
-#             idxs = np.where(indices == energyIdx)[0].astype(np.int32)
-
-#             angleEdges = binEdges[materialIdx, energyIdx, 0, :angleBins + 1]
-#             energyEdges = binEdges[materialIdx, energyIdx, 1, :energyBins + 1]
-
-#             if angleEdges[0] == angleEdges[-1] or energyEdges[0] == energyEdges[-1]:
-#                 out[label + '_angles'][idxs] = 0.0
-#                 out[label + '_energies'][idxs] = 0.0
-#                 continue
-
-#             angleStep = angleEdges[1] - angleEdges[0]
-#             energyStep = energyEdges[1] - energyEdges[0]
-
-#             sampleCDFForEnergyGroup(
-#                 materialIdx, energyIdx, idxs, rand[idxs],
-#                 cdfs, angleBins, energyBins, angleEdges, energyEdges,
-#                 angleStep, energyStep, out[label + '_angles'], out[label + '_energies']
-#             )
-
-#     interpolateMask = energies >= materialMinEnergy
-
-#     # Detect exact matches (within some tolerance) to energies in availableEnergies[i1]
-#     # Use e1 (same shape as energies) from above
-#     tol = 1e-6
-#     exactMatchMask = np.abs(roundedEnergies - e1) < tol
-
-#     # Initialize outputs
-#     sampledAngles = np.zeros_like(energies, dtype=np.float32)
-#     sampledEnergies = np.zeros_like(energies, dtype=np.float32)
-
-#     # For exact matches, directly take samples from i1 bins (out['1_angles'], out['1_energies'])
-#     sampledAngles[exactMatchMask] = out['1_angles'][exactMatchMask]
-#     sampledEnergies[exactMatchMask] = out['1_energies'][exactMatchMask]
-
-#     # For others (where interpolateMask is True and not exact match), do interpolation
-#     interpIndices = interpolateMask & (~exactMatchMask)
-
-#     sampledAngles[interpIndices] = catMullRomInterpolation(
-#         out['_1_angles'][interpIndices], 
-#         out['0_angles'][interpIndices], 
-#         out['1_angles'][interpIndices], 
-#         out['2_angles'][interpIndices], 
-#         weights[interpIndices]
-#     )
-#     sampledEnergies[interpIndices] = catMullRomInterpolation(
-#         out['_1_energies'][interpIndices], 
-#         out['0_energies'][interpIndices], 
-#         out['1_energies'][interpIndices], 
-#         out['2_energies'][interpIndices], 
-#         weights[interpIndices]
-#     )
-
-#     # For energies below minEnergy, sampled outputs remain 0
-
-#     return sampledAngles, sampledEnergies
-
-# --------------- NORMALIZATION VARIABLE -------------
-@numba.jit(nopython=True, inline = 'always')
-def applyNormalizationScaling(energyActive, energyLoss, dt, energyThreshold=20.0, kMin=0.7, kMax=1.0):
-    n = energyActive.shape[0]
-    dtScaled = np.full_like(energyActive, dt)
-    energyLossScaled = energyLoss.copy()
-
-    for i in range(n):
-        if energyActive[i] < energyThreshold:
-            k = kMin + (kMax - kMin) * (energyActive[i] / energyThreshold)
-            dtScaled[i] *= k
-            energyLossScaled[i] *= k
-        else:
-            # Keep original dt and energyLoss for energies >= threshold
-            dtScaled[i] = dt
-            energyLossScaled[i] = energyLoss[i]
-
-    return dtScaled, energyLossScaled
-
-# --------------- NORMALIZATION VARIABLE -------------
-@numba.jit(nopython=True, inline='always')
-def applyNormalizationScalingStochastic(energyActive, energyLoss, dt, noise, 
-                                        energyThreshold=20.0, kMin=0.7, kMax=1.0, alpha=0.1):
-    n = energyActive.shape[0]
-    dtScaled = np.full_like(energyActive, dt)
-    energyLossScaled = energyLoss.copy()
-
-    for i in range(n):
-        if energyActive[i] < energyThreshold:
-            mean_k = kMin + (kMax - kMin) * (energyActive[i] / energyThreshold)
-            std_k = alpha * mean_k
-            k = mean_k + std_k * noise[i]  # z ~ N(0, 1)
-            dtScaled[i] *= k
-            energyLossScaled[i] *= k
-        else:
-            # Keep original dt and energyLoss for energies >= threshold
-            dtScaled[i] = dt
-            energyLossScaled[i] = energyLoss[i]
-
-    return dtScaled, energyLossScaled
-
-
 # --------------- COMMON FUNCTIONS ---------------
 @numba.jit(nopython=True, inline = 'always')
 def sampleCDFForEnergyGroup(materialIdx, energyIdx, sampleIndices, randValues, cdfs,
@@ -736,7 +383,7 @@ def getVoxelIndex(position, size, bins):
 
     return ix, iy, iz
 
-@numba.jit(nopython=True)
+# @numba.jit(nopython=True)
 def dda3dEnergyDeposit(
     initialPositions: np.ndarray,
     finalPositions: np.ndarray,
@@ -807,7 +454,7 @@ def dda3dEnergyDeposit(
                 if 0 <= ix < binsX and 0 <= iy < binsY and 0 <= iz < binsZ:
                     energyDepositedVector[ix, iy, iz] += e_portion
                     deposited += e_portion
-                    # print(f"Deposited {e_portion:.6f} energy at voxel ({ix}, {iy}, {iz})")
+                    print(f"Deposited {e_portion:.6f} energy at voxel ({ix}, {iy}, {iz})")
 
             traveled += travel_len
             if traveled >= total_len:
@@ -861,8 +508,9 @@ def simulateBatchParticlesVectorized(
     binEdges, method='transformation',
     angleStep=None, energyStep=None
 ):
+    initialPosition = -145.0  # Initial position in mm
     energy = np.full(batchSize, initialEnergy)
-    position = np.tile([0.0, 0.0, -bigVoxelSize[2]], (batchSize, 1))
+    position = np.tile([0.0, 0.0, initialPosition], (batchSize, 1))
     velocity = np.tile([0.0, 0.0, 1.0], (batchSize, 1))
     active = np.ones(batchSize, dtype=bool)
 
@@ -882,16 +530,14 @@ def simulateBatchParticlesVectorized(
         energyLossPerStep = energyActive - realEnergies
         energy[active] = realEnergies
         
-        # print(f'Energy: {energy[active]}')
+        print(f'Energy: {energy[active]}')
+        print(f'Position: {position[active]}')
+        print(f'Direction: {velocity[active]}')
+        print(f'Energy loss per step: {energyLossPerStep}')
 
         position[active], velocity[active] = updatePosition(
             position[active], velocity[active], zStep, realAngles
         )
-        
-        # print(f'Initial Position: {oldPosition}')
-        # print(f'New Position: {position[active]}')
-        # print(f'Energy loss per step: {energyLossPerStep}')
-                
 
         # Deposit energy in the physical space
         dda3dEnergyDeposit(
@@ -1146,11 +792,11 @@ if __name__ == "__main__":
     startTime = time.time()
     
     # Shared settings
-    samplingN = 1000000
+    samplingN = 1
     material = 'G4_BONE_CORTICAL_ICRP'
     initialEnergy = 200.  # MeV
     bigVoxelSize = np.array((100., 100., 150.), dtype=np.float64)
-    voxelShapeBins = (50, 50, 100)
+    voxelShapeBins = (50, 50, 300)
     
     angleRange = (0, 70)
     energyRange = (-0.6, 0)
@@ -1195,8 +841,6 @@ if __name__ == "__main__":
         'materials': materials,
         'energies': energies
     }
-    
-    print(data['energies'])
     
     if method == 'normalization':
         # Load extra arrays only used in normalization

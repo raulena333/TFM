@@ -1,0 +1,70 @@
+####################################################
+# Geometry 
+####################################################
+# World:
+s:Ge/World/Type = "TsBox"
+s:Ge/World/Material = "Vacuum"
+b:Ge/World/Invisible = "TRUE"
+
+# TestBox:
+s:Ge/Patient/Type = "TsImageCube" 
+s:Ge/Patient/Parent  = "World"
+s:Ge/Patient/ImagingToMaterialConverter = "MaterialTagNumber"
+iv:Ge/Patient/MaterialTagNumbers = 4 0 1 2 3
+sv:Ge/Patient/MaterialNames = 4 "G4_LUNG_ICRP" "G4_WATER" "G4_BONE_CORTICAL_ICRP" "G4_TISSUE_SOFT_ICRP"
+s:Ge/Patient/DataType  = "SHORT"
+s:Ge/Patient/InputDirectory = "./"
+s:Ge/Patient/InputFile = "materialGrid.dat"
+b:Ge/Patient/OutputMaterialIndex = "true"
+
+d:Ge/Patient/TransX = 0. mm
+d:Ge/Patient/TransY = 0. mm
+d:Ge/Patient/TransZ = 0 mm
+d:Ge/Patient/RotX = 0. deg
+d:Ge/Patient/RotY = 0. deg
+d:Ge/Patient/RotZ = 0. deg
+i:Ge/Patient/NumberOfVoxelsX = 50
+i:Ge/Patient/NumberOfVoxelsY = 50
+i:Ge/Patient/NumberOfVoxelsZ = 300
+d:Ge/Patient/VoxelSizeX = 4. mm
+d:Ge/Patient/VoxelSizeY = 4. mm
+d:Ge/Patient/VoxelSizeZ = 1. mm
+
+####################################################
+# Scoring
+####################################################
+s:Sc/EnergyAtPatient/Quantity = "EnergyDeposit"
+s:Sc/EnergyAtPatient/Component = "Patient"
+s:Sc/EnergyAtPatient/OutputFile = "EnergyAtPatientByBinsTOPAS"
+s:Sc/EnergyAtPatient/IfOutputFileAlreadyExists = "Overwrite"
+# b:Sc/EnergyAtPatient/OutputToConsole = "True"
+
+####################################################
+# Beam Source
+####################################################
+
+includeFile = ./minibeamsTopas.txt
+
+####################################################
+# Visualization
+####################################################
+s:Gr/MyOGL/Type = "OpenGL"
+i:Gr/MyOGL/WidnowSizeX = 600
+i:Gr/MyOGL/WindowSizeY = 600
+d:Gr/MyOGL/Theta = 70 deg
+d:Gr/MyOGL/Phi = 20 deg
+#s:Gr/MyOGL/Projection = "Perspective"
+#d:Gr/MyOGL/PerspectiveAngle = 60 deg
+#b:Gr/MyOGL/IncludeAxes = "True"
+#b:Gr/Enable = "True"
+i:Gr/Verbosity = 0
+i:Ts/NumberOfThreads = 0
+i:Ts/ParameterizationErrorMaxReports = 1
+s:Gr/RefreshEvery = "Run"
+i:Ts/Seed = 98765416
+b:Ts/ShowCPUTime = "True"
+# b:Ts/UseQt = "True"
+# b:Gr/MyOGL/CopyOpenGLToPDF = "TRUE"
+
+sv:Ph/Default/Modules = 1 "g4em-standard_opt0"
+b:Ts/PauseBeforeQuit = "True"

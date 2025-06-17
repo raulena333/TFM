@@ -1,0 +1,85 @@
+# Auto-generated TOPAS input for 5x5 minibeam array
+
+s:Ge/Minibeam_0/Type = "Group"
+s:Ge/Minibeam_0/Parent = "World"
+d:Ge/Minibeam_0/TransX = -4.000 mm
+d:Ge/Minibeam_0/TransY = -4.000 mm
+d:Ge/Minibeam_0/TransZ = 150. mm
+
+s:So/Minibeam_0/Type = "Beam"
+s:So/Minibeam_0/Component = "Minibeam_0"
+s:So/Minibeam_0/BeamParticle = "proton"
+s:So/Minibeam_0/BeamPositionDistribution = "Gaussian"
+s:So/Minibeam_0/BeamPositionCutoffShape = "Rectangle"
+d:So/Minibeam_0/BeamPositionSpreadX = 0.1667 mm
+d:So/Minibeam_0/BeamPositionSpreadY = 0.1667 mm
+d:So/Minibeam_0/BeamPositionCutoffX = 0.5 mm
+d:So/Minibeam_0/BeamPositionCutoffY = 0.5 mm
+s:So/Minibeam_0/BeamAngularDistribution = "None"
+s:So/Minibeam_0/BeamEnergySpectrumType = "Discrete"
+dv:So/Minibeam_0/BeamEnergySpectrumValues = 1 200 MeV
+uv:So/Minibeam_0/BeamEnergySpectrumWeights = 1 1.0
+i:So/Minibeam_0/NumberOfHistoriesInRun = 250
+
+s:Ge/Minibeam_1/Type = "Group"
+s:Ge/Minibeam_1/Parent = "World"
+d:Ge/Minibeam_1/TransX = 0.000 mm
+d:Ge/Minibeam_1/TransY = -4.000 mm
+d:Ge/Minibeam_1/TransZ = 150. mm
+
+s:So/Minibeam_1/Type = "Beam"
+s:So/Minibeam_1/Component = "Minibeam_1"
+s:So/Minibeam_1/BeamParticle = "proton"
+s:So/Minibeam_1/BeamPositionDistribution = "Gaussian"
+s:So/Minibeam_1/BeamPositionCutoffShape = "Rectangle"
+d:So/Minibeam_1/BeamPositionSpreadX = 0.1667 mm
+d:So/Minibeam_1/BeamPositionSpreadY = 0.1667 mm
+d:So/Minibeam_1/BeamPositionCutoffX = 0.5 mm
+d:So/Minibeam_1/BeamPositionCutoffY = 0.5 mm
+s:So/Minibeam_1/BeamAngularDistribution = "None"
+s:So/Minibeam_1/BeamEnergySpectrumType = "Discrete"
+dv:So/Minibeam_1/BeamEnergySpectrumValues = 1 200 MeV
+uv:So/Minibeam_1/BeamEnergySpectrumWeights = 1 1.0
+i:So/Minibeam_1/NumberOfHistoriesInRun = 500
+
+s:Ge/Minibeam_2/Type = "Group"
+s:Ge/Minibeam_2/Parent = "World"
+d:Ge/Minibeam_2/TransX = -4.000 mm
+d:Ge/Minibeam_2/TransY = 0.000 mm
+d:Ge/Minibeam_2/TransZ = 150. mm
+
+s:So/Minibeam_2/Type = "Beam"
+s:So/Minibeam_2/Component = "Minibeam_2"
+s:So/Minibeam_2/BeamParticle = "proton"
+s:So/Minibeam_2/BeamPositionDistribution = "Gaussian"
+s:So/Minibeam_2/BeamPositionCutoffShape = "Rectangle"
+d:So/Minibeam_2/BeamPositionSpreadX = 0.1667 mm
+d:So/Minibeam_2/BeamPositionSpreadY = 0.1667 mm
+d:So/Minibeam_2/BeamPositionCutoffX = 0.5 mm
+d:So/Minibeam_2/BeamPositionCutoffY = 0.5 mm
+s:So/Minibeam_2/BeamAngularDistribution = "None"
+s:So/Minibeam_2/BeamEnergySpectrumType = "Discrete"
+dv:So/Minibeam_2/BeamEnergySpectrumValues = 1 200 MeV
+uv:So/Minibeam_2/BeamEnergySpectrumWeights = 1 1.0
+i:So/Minibeam_2/NumberOfHistoriesInRun = 750
+
+s:Ge/Minibeam_3/Type = "Group"
+s:Ge/Minibeam_3/Parent = "World"
+d:Ge/Minibeam_3/TransX = 0.000 mm
+d:Ge/Minibeam_3/TransY = 0.000 mm
+d:Ge/Minibeam_3/TransZ = 150. mm
+
+s:So/Minibeam_3/Type = "Beam"
+s:So/Minibeam_3/Component = "Minibeam_3"
+s:So/Minibeam_3/BeamParticle = "proton"
+s:So/Minibeam_3/BeamPositionDistribution = "Gaussian"
+s:So/Minibeam_3/BeamPositionCutoffShape = "Rectangle"
+d:So/Minibeam_3/BeamPositionSpreadX = 0.1667 mm
+d:So/Minibeam_3/BeamPositionSpreadY = 0.1667 mm
+d:So/Minibeam_3/BeamPositionCutoffX = 0.5 mm
+d:So/Minibeam_3/BeamPositionCutoffY = 0.5 mm
+s:So/Minibeam_3/BeamAngularDistribution = "None"
+s:So/Minibeam_3/BeamEnergySpectrumType = "Discrete"
+dv:So/Minibeam_3/BeamEnergySpectrumValues = 1 200 MeV
+uv:So/Minibeam_3/BeamEnergySpectrumWeights = 1 1.0
+i:So/Minibeam_3/NumberOfHistoriesInRun = 1000
