@@ -10,10 +10,10 @@ import csv
 from numba import prange
 import numba
 import faulthandler
-import seaborn as sns
-import pandas as pd
 from typing import Tuple
 from pathlib import Path
+
+np.set_printoptions(precision=6, suppress=True)
 
 samplerCache = {}
 faulthandler.enable()
@@ -57,6 +57,7 @@ class BinningConfig:
 # This class represents a histogram sampler for sampling angles and energies based on a given histogram.
 # It initializes with a histogram, calculates the cumulative distribution function (CDF), and provides a method to sample angles and energies.
 class HistogramSampler:
+
     def __init__(self, hist : np.ndarray, rng=None):
         self.hist = hist
         self.angleBins, self.energyBins = hist.shape
@@ -65,7 +66,7 @@ class HistogramSampler:
         self.flatHist = hist.flatten()
         self.cumsum = np.cumsum(self.flatHist)
         self.cumsum /= self.cumsum[-1] 
-
+        
     def sample(self, size=1) -> Tuple[np.ndarray, np.ndarray]:
         randValues = self.rng.random(size)
         idxs = np.searchsorted(self.cumsum, randValues, side='right')
@@ -99,7 +100,7 @@ def buildCdfsFromProbTable(probTable):
 
     return cdfs
 
-# --------------- TRANSFORMATION VARIABLE ---------------
+# --------------- TRANSFORMATION VARIABLE --------------
 def prebuildSamplers(data : dict, angleRange : tuple, energyRange : tuple, materialToIndex : dict):
     global samplerCache, binningConfig
 
@@ -114,90 +115,33 @@ def prebuildSamplers(data : dict, angleRange : tuple, energyRange : tuple, mater
                 hist = data['probTable'][materialIdx, energyIdx]
                 samplerCache[cacheKey] = HistogramSampler(hist)
                 
-# --------------- TRANSFORMATION VARIABLE ---------------
+# --------------- TRANSFORMATION VARIABLE --------------
 @numba.jit(nopython=True, inline = 'always') 
 def reverseVariableChangeTransform(initialEnergies, angles, energies):
     realAngles = angles / np.sqrt(initialEnergies)
     realEnergies = initialEnergies * (1.0 - np.exp(energies * np.sqrt(initialEnergies)))
     return realAngles, realEnergies                
-                
-# --------------- TRANSFORMATION VARIABLE ---------------
-def sampleReverseCalculateInterpolation(data : dict, material : str, energy : float, 
-        angleRange : tuple,  energyRange : tuple,  materialToIndex : dict):
-    probTable = data['probTable']
-    energies = np.sort(data['energies'])
 
-    if energy < 9.:
-        return 0, 0
-    if material not in materialToIndex:
-        raise ValueError(f"Material '{material}' not found in data.")
-        
-    materialIdx = materialToIndex[material]
-    if energy < energies[0] or energy > energies[-1]:
-        raise ValueError(f"Energy {energy} out of bounds ({energies[0]} - {energies[-1]})")
-
-    lowerIndex = np.searchsorted(energies, energy) - 1
-    upperIndex = lowerIndex + 1
-    lowerIndex = max(0, lowerIndex)
-    upperIndex = min(len(energies) - 1, upperIndex)
-
-    energyLow = energies[lowerIndex]
-    energyUp = energies[upperIndex]
-    probLow = probTable[materialIdx, lowerIndex]
-    probHigh = probTable[materialIdx, upperIndex]
-
-    if energyUp == energyLow:
-        hist = probLow
-    else:
-        weight = (energy - energyLow) / (energyUp - energyLow)
-        hist = (1 - weight) * probLow + weight * probHigh
-
-    cache_key = (materialIdx, lowerIndex, upperIndex, round(weight, 4))  # tuple for unique key
-
-    if cache_key not in samplerCache:
-        samplerCache[cache_key] = HistogramSampler(hist, angleRange, energyRange)
-
-    sampler = samplerCache[cache_key]
-    angleSample, energySample = sampler.sample()
-    realAngle, realEnergy = reverseVariableChangeTransform(energy, angleSample, energySample)
-
-    return realAngle, realEnergy   
-
-# --------------- TRANSFORMATION VARIABLE ---------------        
-def sampleFromCDFVectorizedTransformation(data: dict, materials: np.ndarray, energies: np.ndarray, materialToIndex: dict, cdfs: np.ndarray,
+# --------------- TRANSFORMATION VARIABLE ---------------       
+def sampleFromCDFVectorizedTransformation(data: dict, materials: np.ndarray, energies: np.ndarray, cdfs: np.ndarray,
         binEdges: np.ndarray, angleStep : float, energyStep : float):
-    # Get the index of materials from the lookup dictionary
-    materialIndices = np.array([materialToIndex[mat] for mat in materials])
-
+    
+    # Get the index of the material from the lookup dictionary
     availableEnergies = data['energies']
+    
+    # Material-specific minimum valid energy (indexed by material index)
+    # Index 0 = lung, 1 = water, 2 = bone, 3 = soft tissue
+    minEnergyByMaterial = np.array([9.2, 9.0, 12.0, 9.2], dtype=np.float32)
+    materialMinEnergies = minEnergyByMaterial[materials]
+    
     # Clip energies to the valid range
     minEnergy = np.min(availableEnergies)
     maxEnergy = np.max(availableEnergies)
     roundedEnergies = np.clip(np.round(energies, 1), minEnergy, maxEnergy)
     
-    minEnergyByMaterial = {
-        'G4_WATER': 9.0,
-        'G4_LUNG_ICRP': 9.5,
-        'G4_BONE_CORTICAL_ICRP': 12.0,
-        'G4_TISSUE_SOFT_ICRP': 9.5
-    }
-    
-   # Map material names to indices
-    materialIndices = np.array([materialToIndex[mat] for mat in materials])
-
-    # Create a NumPy array aligned with materialToIndex for faster lookup
-    minEnergyLookup = np.array([
-        minEnergyByMaterial.get(mat, minEnergy) for mat in materialToIndex.keys()
-    ], dtype=np.float32)
-    materialMinEnergies = minEnergyLookup[materialIndices]
-
     # availableEnergies is descending, so reverse it for searchsorted
     reversedEnergies = availableEnergies[::-1]
-
-    # Perform search in ascending order
     insertPos = np.searchsorted(reversedEnergies, roundedEnergies, side='left')
-
-    # Clamp insertPos within valid range
     insertPos = np.clip(insertPos, 1, len(reversedEnergies) - 1)
 
     # Compare to both neighbors in reversed array
@@ -207,7 +151,8 @@ def sampleFromCDFVectorizedTransformation(data: dict, materials: np.ndarray, ene
 
     # Compute correct index back in original (descending) energy array
     closestEnergyIndices = len(availableEnergies) - 1 - np.where(chooseLeft, insertPos - 1, insertPos)
-
+    #print('Closest energy indices:', closestEnergyIndices)
+    
     sampledAngles = np.zeros_like(energies, dtype=np.float32)
     sampledEnergies = np.zeros_like(energies, dtype=np.float32)
 
@@ -218,11 +163,12 @@ def sampleFromCDFVectorizedTransformation(data: dict, materials: np.ndarray, ene
     angleEdges = binEdges[0, :angleBins + 1]
     energyEdges = binEdges[1, :energyBins + 1]
     
-    # Set to get unique material-energy pairs for efficient processing
-    uniquePairs = set(zip(materialIndices, closestEnergyIndices))
+    # Sample in batches for each unique energy index
+    uniquePairs = set(zip(materials, closestEnergyIndices))
     for materialIdx, energyIdx in uniquePairs:
-        # Get indices of the samples that match the current material and energy
-        sampleIndices = np.where((materialIndices == materialIdx) & (closestEnergyIndices == energyIdx))[0]
+        #print('materialIdx:', materialIdx, 'energyIdx:', energyIdx)
+        sampleIndices = np.where((materials == materialIdx) & (closestEnergyIndices == energyIdx))[0]
+        #print('Sample indices:', sampleIndices)
         randValues = np.random.random(size=sampleIndices.size).astype(np.float32)
 
         sampleCDFForEnergyGroup(
@@ -239,10 +185,10 @@ def sampleFromCDFVectorizedTransformation(data: dict, materials: np.ndarray, ene
     realAngles[mask] = 0
     realEnergies[mask] = 0
 
+
     return realAngles, realEnergies
 
-
-# --------------- NORMALIZATION VARIABLE ---------------
+# --------------- NORMALIZATION VARIABLE --------------
 def buildCdfsAndCompactBins(data: dict) -> Tuple[np.ndarray, np.ndarray]:
     probTable = data['probTable']
     thetaMax = data['thetaMax']
@@ -279,13 +225,7 @@ def buildCdfsAndCompactBins(data: dict) -> Tuple[np.ndarray, np.ndarray]:
 
     return cdfs, binEdges
 
-# --------------- NORMALIZATION VARIABLE ---------------
-@numba.jit(nopython=True, inline = 'always') 
-def reverseVariableChangeNormalized(normalizedAngle, normalizedEnergy, thetaMax, thetaMin, energyMin, energyMax):
-    realAngle = normalizedAngle * (thetaMax - thetaMin) + thetaMin
-    realEnergy = energyMin + normalizedEnergy * (energyMax - energyMin)
-    return realAngle, realEnergy
-
+# --------------- NORMALIZATION VARIABLE -------------
 @numba.jit(nopython=True, inline = 'always') 
 def catMullRomInterpolation(f_1, f0, f1, f2, t):    
     t2 = t * t
@@ -296,146 +236,34 @@ def catMullRomInterpolation(f_1, f0, f1, f2, t):
         (2.0 * f_1 - 5.0 * f0 + 4.0 * f1 - f2) * t2 + 
         (-f_1 + 3.0 * f0 - 3.0 * f1 +f2) * t3
     ) 
-
-# --------------- NORMALIZATION VARIABLE ---------------
-def sampleFromCDFVectorizedNormalization(
+    
+# --------------- NORMALIZATION VARIABLE -------------
+def sampleFromCDFVectorizedNormalizationCubic(
     data: dict, 
     materials: np.ndarray, 
     energies: np.ndarray, 
-    materialToIndex: dict,
-    cdfs: np.ndarray, 
-    binEdges: np.ndarray
-) -> Tuple[np.ndarray, np.ndarray]:
-
-    materialIndices = np.array([materialToIndex[mat] for mat in materials])
-    availableEnergies = data['energies']
-    angleBins, energyBins = data['probTable'].shape[2:]
-    
-    minEnergyByMaterial = {
-        'G4_WATER': 9.0,
-        'G4_LUNG_ICRP': 9.5,
-        'G4_BONE_CORTICAL_ICRP': 12.0,
-        'G4_TISSUE_SOFT_ICRP': 9.5
-    }
-    
-    # Map material names to indices
-    materialIndices = np.array([materialToIndex[mat] for mat in materials])
-
-    # Create a NumPy array aligned with materialToIndex for faster lookup
-    minEnergyLookup = np.array([
-        minEnergyByMaterial.get(mat, minEnergy) for mat in materialToIndex.keys()
-    ], dtype=np.float32)
-    materialMinEnergies = minEnergyLookup[materialIndices]
-
-    minEnergy = np.min(availableEnergies)
-    maxEnergy = np.max(availableEnergies)
-    roundedEnergies = np.clip(np.round(energies, 1), minEnergy, maxEnergy)
-
-    # Find lower and upper interpolation indices for each energy
-    reversedEnergies = availableEnergies[::-1]
-    insertPos = np.searchsorted(reversedEnergies, roundedEnergies, side='left')
-    insertPos = np.clip(insertPos, 1, len(reversedEnergies) - 1)
-
-    upperIndices = len(availableEnergies) - 1 - (insertPos - 1)
-    lowerIndices = np.clip(upperIndices - 1, 0, len(availableEnergies) - 1)
-    upperIndices = np.clip(upperIndices, 0, len(availableEnergies) - 1)
-
-    lowerEnergy = availableEnergies[lowerIndices]
-    upperEnergy = availableEnergies[upperIndices]
-
-    # Linear interpolation weights
-    weights = np.where(
-        upperEnergy != lowerEnergy,
-        (roundedEnergies - lowerEnergy) / (upperEnergy - lowerEnergy),
-        0.0
-    ).astype(np.float32)
-
-    rand1 = np.random.random(size=energies.shape).astype(np.float32)
-    rand2 = np.random.random(size=energies.shape).astype(np.float32)
-
-    sampledAnglesLower = np.zeros_like(energies, dtype=np.float32)
-    sampledEnergiesLower = np.zeros_like(energies, dtype=np.float32)
-    sampledAnglesUpper = np.zeros_like(energies, dtype=np.float32)
-    sampledEnergiesUpper = np.zeros_like(energies, dtype=np.float32)
-
-    for (matIdxArray, energyIdxArray, rand, outAngles, outEnergies) in [
-        (materialIndices, lowerIndices, rand1, sampledAnglesLower, sampledEnergiesLower),
-        (materialIndices, upperIndices, rand2, sampledAnglesUpper, sampledEnergiesUpper),
-    ]:
-        uniquePairs = set(zip(matIdxArray, energyIdxArray))
-        for matIdx, energyIdx in uniquePairs:
-            idxs = np.where((matIdxArray == matIdx) & (energyIdxArray == energyIdx))[0].astype(np.int32)
-
-            angleEdges = binEdges[matIdx, energyIdx, 0, :angleBins + 1]
-            energyEdges = binEdges[matIdx, energyIdx, 1, :energyBins + 1]
-
-            if angleEdges[0] == angleEdges[-1] or energyEdges[0] == energyEdges[-1]:
-                outAngles[idxs] = 0.0
-                outEnergies[idxs] = 0.0
-                continue
-
-            angleStep = angleEdges[1] - angleEdges[0]
-            energyStep = energyEdges[1] - energyEdges[0]
-
-            sampleCDFForEnergyGroup(
-                matIdx, energyIdx, idxs, rand[idxs],
-                cdfs, angleBins, energyBins, angleEdges, energyEdges,
-                angleStep, energyStep, outAngles, outEnergies
-            )
-
-    # Final interpolation only for energies >= minEnergy
-    interpolateMask = energies >= materialMinEnergies
-    sampledAngles = np.where(
-        interpolateMask,
-        (1.0 - weights) * sampledAnglesLower + weights * sampledAnglesUpper,
-        0.0
-    )
-    sampledEnergies = np.where(
-        interpolateMask,
-        (1.0 - weights) * sampledEnergiesLower + weights * sampledEnergiesUpper,
-        0.0
-    )
-
-    return sampledAngles, sampledEnergies
-
-def sampleFromCDFVectorizedNormalizationCubic(    
-    data: dict, 
-    materials: np.ndarray, 
-    energies: np.ndarray, 
-    materialToIndex: dict,
     cdfs: np.ndarray, 
     binEdges: np.ndarray
 ) -> Tuple[np.ndarray, np.ndarray]:
     
-    materialIndices = np.array([materialToIndex[mat] for mat in materials])
     availableEnergies = data['energies']
     angleBins, energyBins = data['probTable'].shape[2:]
     
-    minEnergyByMaterial = {
-        'G4_WATER': 9.3,
-        'G4_LUNG_ICRP': 9.8,
-        'G4_BONE_CORTICAL_ICRP': 12.7,
-        'G4_TISSUE_SOFT_ICRP': 9.8
-    }
-    
-    # Map material names to indices
-    materialIndices = np.array([materialToIndex[mat] for mat in materials])
-
-    # Create a NumPy array aligned with materialToIndex for faster lookup
-    minEnergyLookup = np.array([
-        minEnergyByMaterial.get(mat, minEnergy) for mat in materialToIndex.keys()
-    ], dtype=np.float32)
-    materialMinEnergies = minEnergyLookup[materialIndices]
+    # Material-specific minimum valid energy (indexed by material index)
+    # Index 0 = lung , 1 = water, 2 = bone, 3 = soft tissue
+    minEnergyByMaterial = np.array([9.2, 9.0, 12.0, 9.2], dtype=np.float32)
+    #minEnergyByMaterial = np.array([9.7, 9.5, 12.5, 9.7], dtype=np.float32)
+    materialMinEnergies = minEnergyByMaterial[materials]
 
     minEnergy = np.min(availableEnergies)
     maxEnergy = np.max(availableEnergies)
-    roundedEnergies = np.clip(np.round(energies, 1), minEnergy, maxEnergy)
+    roundedEnergies = np.clip(energies, minEnergy, maxEnergy)
 
-    # Find lower and upper interpolation indices for each energy
+    # Interpolation setup
     reversedEnergies = availableEnergies[::-1]
     insertPos = np.searchsorted(reversedEnergies, roundedEnergies, side='left')
-    insertPos = np.clip(insertPos, 1, len(reversedEnergies) - 1)
-    
+    insertPos = np.clip(insertPos, 1, len(reversedEnergies) - 2)
+
     base = len(availableEnergies) - 1
     i1 = base - insertPos
     i0 = np.clip(i1 - 1, 0, base)
@@ -444,11 +272,16 @@ def sampleFromCDFVectorizedNormalizationCubic(
 
     e0 = availableEnergies[i0]
     e1 = availableEnergies[i1]
-    
-    weights = np.where(e1 != e0, (roundedEnergies - e0) / (e1 - e0), 0.0).astype(np.float32)
+
+    # Interpolation weights, only applied where energy >= minEnergy
+    weights = np.where(
+        e1 != e0,
+        (roundedEnergies - e0) / (e1 - e0),
+        0.0
+    ).astype(np.float32)
 
     rand = np.random.random(size=energies.shape).astype(np.float32)
-    
+
     out = {}
     for label, indices in zip(
         ['_1', '0', '1', '2'], [i_1, i0, i1, i2]
@@ -456,12 +289,12 @@ def sampleFromCDFVectorizedNormalizationCubic(
         out[label + '_angles'] = np.zeros_like(energies, dtype=np.float32)
         out[label + '_energies'] = np.zeros_like(energies, dtype=np.float32)
 
-        uniquePairs = set(zip(materialIndices, indices))
-        for matIdx, energyIdx in uniquePairs:
-            idxs = np.where((materialIndices == matIdx) & (indices == energyIdx))[0].astype(np.int32)
-
-            angleEdges = binEdges[matIdx, energyIdx, 0, :angleBins + 1]
-            energyEdges = binEdges[matIdx, energyIdx, 1, :energyBins + 1]
+        uniquePairs = set(zip(materials, indices))
+        for materialIdx, energyIdx in uniquePairs:
+            idxs = np.where((materials == materialIdx) & (indices == energyIdx))[0].astype(np.int32)
+            
+            angleEdges = binEdges[materialIdx, energyIdx, 0, :angleBins + 1]
+            energyEdges = binEdges[materialIdx, energyIdx, 1, :energyBins + 1]
 
             if angleEdges[0] == angleEdges[-1] or energyEdges[0] == energyEdges[-1]:
                 out[label + '_angles'][idxs] = 0.0
@@ -472,7 +305,7 @@ def sampleFromCDFVectorizedNormalizationCubic(
             energyStep = energyEdges[1] - energyEdges[0]
 
             sampleCDFForEnergyGroup(
-                matIdx, energyIdx, idxs, rand[idxs],
+                materialIdx, energyIdx, idxs, rand[idxs],
                 cdfs, angleBins, energyBins, angleEdges, energyEdges,
                 angleStep, energyStep, out[label + '_angles'], out[label + '_energies']
             )
@@ -494,8 +327,8 @@ def sampleFromCDFVectorizedNormalizationCubic(
     )
 
     return sampledAngles, sampledEnergies
-    
-# --------------- COMMON FUNCTIONS ----------------
+
+# --------------- COMMON FUNCTIONS ---------------
 @numba.jit(nopython=True, inline = 'always')
 def sampleCDFForEnergyGroup(materialIdx, energyIdx, sampleIndices, randValues, cdfs,
             angleBins, energyBins, angleEdges, energyEdges, angleStep, energyStep,
@@ -520,7 +353,109 @@ def sampleCDFForEnergyGroup(materialIdx, energyIdx, sampleIndices, randValues, c
         sampledAngles[idx] = angle
         sampledEnergies[idx] = energy
         
-# --------------- COMMON FUNCTIONS ----------------
+# --------------- COMMON FUNCTIONS ---------------
+@numba.jit(nopython=True, fastmath=True)
+def dda3dStepTraversal(initialPositions,
+    directions,
+    grid,
+    gridShape,
+    physicalSize,
+    materialIndices,
+    segmentLengths,
+    segmentCounts,
+    voxelIndices,
+    stepLength=1.0,
+    maxSegments=5
+    ):
+    n = initialPositions.shape[0]
+    binsX, binsY, binsZ = gridShape
+    sizeX, sizeY, sizeZ = physicalSize
+    
+    voxelSize = np.empty(3, dtype=np.float64)
+    voxelSize[0] = 2 * sizeX / binsX
+    voxelSize[1] = 2 * sizeY / binsY
+    voxelSize[2] = 2 * sizeZ / binsZ
+
+    gridOrigin = np.empty(3, dtype=np.float64)
+    gridOrigin[0] = -sizeX
+    gridOrigin[1] = -sizeY
+    gridOrigin[2] = -sizeZ
+
+    for i in range(n):
+        pos = initialPositions[i]
+        dir = directions[i]
+        pos = pos + 1e-6 * dir
+        traveled = 0.0
+
+        # Get initial voxel index:
+        voxelIndx = getVoxelIndex(pos, physicalSize, gridShape)
+        voxel = np.empty(3, dtype=np.int32)
+        voxel[0], voxel[1], voxel[2] = voxelIndx[0], voxelIndx[1], voxelIndx[2]
+        
+        if np.any(voxel < 0) or voxel[0] >= binsX or voxel[1] >= binsY or voxel[2] >= binsZ:
+            # Out of bounds initially, skip or handle differently
+            continue
+        
+        # Compute step, tMax, tDelta per axis:
+        step = np.empty(3, dtype=np.int32)
+        tMax = np.empty(3, dtype=np.float64)
+        tDelta = np.empty(3, dtype=np.float64)
+
+        for j in range(3):
+            if abs(dir[j]) < 1e-20:
+                step[j] = 0
+                tMax[j] = np.inf
+                tDelta[j] = np.inf
+            else:
+                if dir[j] > 0:
+                    step[j] = 1
+                    nextBoundary = gridOrigin[j] + (voxel[j] + 1) * voxelSize[j]
+                else:
+                    step[j] = -1
+                    nextBoundary = gridOrigin[j] + voxel[j] * voxelSize[j]
+                tMax[j] = (nextBoundary - pos[j]) / dir[j]
+                tDelta[j] = voxelSize[j] / abs(dir[j])
+
+        count = 0
+
+        while traveled < stepLength and count < maxSegments:
+            # Current voxel is traversed for at least:
+            mintMax = tMax[0]
+            axis = 0
+            if tMax[1] < mintMax:
+                mintMax = tMax[1]
+                axis = 1
+            if tMax[2] < mintMax:
+                mintMax = tMax[2] 
+                axis = 2
+            
+            # Distance to next voxel boundary or remaining step length:
+            travelLength = min(mintMax, stepLength - traveled)
+
+            # Store voxel and segment info if inside grid:
+            ix, iy, iz = voxel
+            if 0 <= ix < binsX and 0 <= iy < binsY and 0 <= iz < binsZ:
+                material = grid[ix, iy, iz]
+                materialIndices[i, count] = material
+                segmentLengths[i, count] = travelLength
+                voxelIndices[i, count, :] = voxel
+                # print(f'Travel new segment:', count, 'at voxel:', ix, iy, iz, 'length:', travelLength, 'material:', material)
+                count += 1
+            else:
+                # Out of bounds voxel - stop traversal for this particle
+                break
+
+            traveled += travelLength
+
+            # Move to next voxel along axis:
+            voxel[axis] += step[axis]
+            tMax[axis] += tDelta[axis]
+
+        segmentCounts[i] = count
+
+    return materialIndices, segmentLengths, segmentCounts
+        
+# --------------- COMMON FUNCTIONS ---------------
 def createPhysicalSpace(bigVoxel : tuple,  voxelShapeBins : tuple, 
         dt = 1 / 3) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     xRange = np.linspace(-bigVoxel[0] / dt, bigVoxel[0] / dt, voxelShapeBins[0]) 
@@ -529,65 +464,43 @@ def createPhysicalSpace(bigVoxel : tuple,  voxelShapeBins : tuple,
     
     return xRange, yRange, zRange
 
-# --------------- COMMON FUNCTIONS ----------------
-@numba.njit(inline = 'always')
-def getVoxelIndex(pos, sizeX, sizeY, sizeZ, binsX, binsY, binsZ):
-    x = (pos[0] + sizeX) / (2 * sizeX)
-    y = (pos[1] + sizeY) / (2 * sizeY)
-    z = (pos[2] + sizeZ) / (2 * sizeZ)
+# --------------- COMMON FUNCTIONS ---------------
+@numba.jit(nopython=True)
+def getVoxelIndex(position, size, bins):
+    
+    ix = int((position[0] + size[0]) * bins[0] / (2 * size[0]))
+    iy = int((position[1] + size[1]) * bins[1] / (2 * size[1]))
+    iz = int((position[2] + size[2]) * bins[2] / (2 * size[2]))
 
-    ix = min(max(int(x * binsX), 0), binsX - 1)
-    iy = min(max(int(y * binsY), 0), binsY - 1)
-    iz = min(max(int(z * binsZ), 0), binsZ - 1)
+    ix = min(max(ix, 0), bins[0] - 1)
+    iy = min(max(iy, 0), bins[1] - 1)
+    iz = min(max(iz, 0), bins[2] - 1)
+    # print(f"Voxel Index: ({ix}, {iy}, {iz})")
 
     return ix, iy, iz
 
-# --------------- COMMON FUNCTIONS ----------------
-@numba.jit(nopython=True, inline = 'always')
-def calculateEnergyDepositBinBatch(positions, physicalSize, energyLosses, 
-                                   energyDepositedVector, voxelShapeBins):
+# --------------- COMMON FUNCTIONS ---------------
+@numba.jit(nopython=True)
+def getMaterialIndexAtPosition(positions, grid, physicalSize, voxelShapeBins):
     n = positions.shape[0]
-    sizeX, sizeY, sizeZ = physicalSize
-    binsX, binsY, binsZ = voxelShapeBins
-
-    for i in range(n):
-        ix, iy, iz = getVoxelIndex(positions[i], sizeX, sizeY, sizeZ, binsX, binsY, binsZ)
-        energyDepositedVector[ix, iy, iz] += energyLosses[i]
-
-    return energyDepositedVector
-
-# --------------- COMMON FUNCTIONS ----------------
-@numba.jit(nopython=True, inline = 'always')
-def getIndicesAtPosition(positions, grid, physicalSize, voxelShapeBins):
-    n = positions.shape[0]
-    sizeX, sizeY, sizeZ = physicalSize
-    binsX, binsY, binsZ = voxelShapeBins
-
     indices = np.empty(n, dtype=np.int32)
     
     for i in range(n):
-        ix, iy, iz = getVoxelIndex(positions[i], sizeX, sizeY, sizeZ, binsX, binsY, binsZ)
+        ix, iy, iz = getVoxelIndex(positions[i], physicalSize, voxelShapeBins)
         indices[i] = grid[ix, iy, iz]
         
     return indices
 
-# --------------- COMMON FUNCTIONS ----------------
-def getMaterialsAtPosition(positions, grid, physicalSize, voxelShapeBins, materials):
-    indices = getIndicesAtPosition(positions, grid, physicalSize, voxelShapeBins)
-    materialNames = np.array([materials[idx] for idx in indices])
-    return materialNames
-    
-# --------------- COMMON FUNCTIONS ----------------
+# --------------- COMMON FUNCTIONS ---------------
 def sampleFromCDF(
-    data, materials, energies, materialToIndex, cdfs, binEdges, method="transformation",
+    data, materialsIndex, energies, cdfs, binEdges, method="transformation",
     angleStep=None, energyStep=None
 ):
     if method == "transformation":
         return sampleFromCDFVectorizedTransformation(
             data=data,
-            materials=materials,
+            materials=materialsIndex,
             energies=energies,
-            materialToIndex=materialToIndex,
             cdfs=cdfs,
             binEdges=binEdges,
             angleStep=angleStep,
@@ -598,103 +511,349 @@ def sampleFromCDF(
             raise ValueError("Bin edges must be provided for 'normalization' method.")
         return sampleFromCDFVectorizedNormalizationCubic(
             data=data,
-            materials=materials,
+            materials=materialsIndex,
             energies=energies,
-            materialToIndex=materialToIndex,
             cdfs=cdfs,
             binEdges=binEdges
         )
     else:
         raise ValueError(f"Unknown sampling method: {method}")
-        
-# --------------- COMMON FUNCTIONS ----------------
-def simulateBatchParticlesVectorized(
-    batchSize, data, materialGrid, initialEnergy,
-    materialToIndex, bigVoxelSize, 
-    energyDepositedVector, cdfs, 
-    binEdges, method = 'transformation',
-    angleStep = None, energyStep = None
+
+def scatteringStepMaterial(
+    initialPositions,
+    directions,
+    initialEnergies,
+    energyGrid,
+    fluenceGrid,
+    energyFluenceGrid,
+    grid,
+    data,
+    cdfs,
+    binEdges,
+    gridShape,
+    physicalSize,
+    method,
+    angleStep,
+    energyStep,
+    stepLength=1.0,
+    maxSegments=5
 ):
-    smallStep = 1e-3
-    dt = 1 / 3 + smallStep
-    energy = np.full(batchSize, initialEnergy)
-    position = np.tile([0.0, 0.0, -bigVoxelSize[2]], (batchSize, 1))
-    velocity = np.tile([0.0, 0.0, 1.0], (batchSize, 1))   
-
-    active = np.ones(batchSize, dtype=bool)
-    zAxis = np.array([0.0, 0.0, 1.0])
-
-    # print("Initial energy:", energy, "Initial position:", position)
+    numberOfParticles = initialPositions.shape[0]
     
+    newPositions = initialPositions
+    newDirections = directions
+    newEnergies = initialEnergies
+    
+    # Preallocate output arrays
+    materialIndices = -np.ones((numberOfParticles, maxSegments), dtype=np.int32)
+    segmentLengths = np.zeros((numberOfParticles, maxSegments), dtype=np.float32)
+    segmentCounts = np.zeros(numberOfParticles, dtype=np.int32)
+    voxelIndices = -np.ones((numberOfParticles, maxSegments, 3), dtype=np.int32)
+    
+    # First we sample angles and energies
+    materialIndex = getMaterialIndexAtPosition(
+        positions=initialPositions,
+        grid=grid,
+        physicalSize=physicalSize,
+        voxelShapeBins=gridShape
+    )
+    # print('Material indices:', materialIndex)
+
+    # Sample angles and energies
+    sampleAngles, sampledEnergies = sampleFromCDF(
+        data=data,
+        materialsIndex=materialIndex,
+        energies=initialEnergies,
+        cdfs=cdfs,
+        binEdges=binEdges,
+        method=method,
+        angleStep=angleStep,
+        energyStep=energyStep
+    )
+    #print('Sampled angles:', sampleAngles)
+    #print('Sampled energies:', sampledEnergies)
+    
+    # Update only directions based on angles sampled
+    newDirections = updateDirection(
+        velocity=directions,
+        realAngles=sampleAngles
+    )
+    # print('New directions:\n', newDirections)
+    
+    # Get material indices, segment lengths, segment counts, and voxel indices
+    dda3dStepTraversal(
+        initialPositions=initialPositions,
+        directions=newDirections,
+        grid=grid,
+        gridShape=gridShape,
+        physicalSize=physicalSize,
+        materialIndices=materialIndices,
+        segmentLengths=segmentLengths,
+        segmentCounts=segmentCounts,
+        voxelIndices=voxelIndices,
+        stepLength=stepLength,
+        maxSegments=maxSegments
+    )
+    # print('Material indices:', materialIndices)
+    # print('Segment lengths:', segmentLengths)
+    # print('Segment counts:', segmentCounts)
+    # print('Voxel indices:', voxelIndices)
+    
+    # Compute valid mask and first material per particle
+    validMask = np.arange(maxSegments) < segmentCounts[:, None]
+    firstMaterial = materialIndices[:, 0][:, None]
+
+    # Determine which particles stayed in a single material
+    sameMaterialMask = (materialIndices == firstMaterial) | ~validMask
+    allSame = np.all(sameMaterialMask, axis=1)
+
+    crossedMultipleMaterials = ~allSame
+    stayedSingleMaterial = allSame
+
+    # Divide particles into those that stayed in a single material and those that crossed multiple
+    # If stayed in single material, the stepLength is used completely = 1. 
+    if np.any(stayedSingleMaterial):
+        singleIndices = np.where(stayedSingleMaterial)[0]
+        #print('Single material indices:', singleIndices)
+
+        newPositions[singleIndices] += stepLength * newDirections[singleIndices]
+        newPositions[singleIndices] = np.round(newPositions[singleIndices], decimals=5)
+        #print('New positions:', newPositions[singleIndices])
+
+        energyLossStep = initialEnergies[singleIndices] - sampledEnergies[singleIndices]
+        #print('Energy loss step:', energyLossStep)
+
+        newEnergies[singleIndices] = sampledEnergies[singleIndices]
+        
+        depositEnergy3DStepTraversal(
+            voxelIndices=voxelIndices[singleIndices],
+            segmentLengths=segmentLengths[singleIndices],
+            segmentCounts=segmentCounts[singleIndices],
+            energyLossPerStep=energyLossStep,
+            energyDepositedVector=energyGrid,
+            initialEnergies=initialEnergies[singleIndices],
+            fluenceVector=fluenceGrid,
+            energyFluenceVector=energyFluenceGrid
+        )
+
+        #print('New energies:', newEnergies[singleIndices])
+        
+        #print('------------------------------------')
+
+    if np.any(crossedMultipleMaterials):
+        multipleIndices = np.where(crossedMultipleMaterials)[0]
+        #print('Crossed multiple material indices:', multipleIndices)
+        
+        # Get material indices and segment lengths for multiple materials
+        materialsMulti = materialIndices[multipleIndices]
+        segmentLengthsMulti = segmentLengths[multipleIndices]
+        voxelIndicesMulti = voxelIndices[multipleIndices]
+        firstMaterialMulti = firstMaterial[multipleIndices]
+        #print('First material:', firstMaterialMulti)
+        
+        # Create mask: True where material equals firstMaterial, False otherwise
+        sameAsFirst = (materialsMulti == firstMaterialMulti)
+        lengthInFirstMaterial = np.sum(segmentLengthsMulti * sameAsFirst, axis=1)
+        #print('Length in first material:', lengthInFirstMaterial)
+        
+        energyLossStep = initialEnergies[multipleIndices] - sampledEnergies[multipleIndices]
+        fractionStep = lengthInFirstMaterial / stepLength
+        realEnergyLossStep = energyLossStep * fractionStep
+        finalEnergy = initialEnergies[multipleIndices] - realEnergyLossStep
+        #print('Final energies:', finalEnergy)
+        
+        # Update the postions of the particles
+        newPositions[multipleIndices] += lengthInFirstMaterial[:, None] * newDirections[multipleIndices]
+        newPositions[multipleIndices] = np.round(newPositions[multipleIndices], decimals=5)
+        #print('New positions:', newPositions[multipleIndices])
+        
+        # Truncate to first-material-only segments
+        truncatedSegmentLengths = np.zeros_like(segmentLengthsMulti)
+        truncatedVoxelIndices = np.full_like(voxelIndicesMulti, -1)
+        truncatedSegmentCounts = np.count_nonzero(sameAsFirst, axis=1)
+
+        truncatedSegmentLengths[sameAsFirst] = segmentLengthsMulti[sameAsFirst]
+        truncatedVoxelIndices[sameAsFirst] = voxelIndicesMulti[sameAsFirst]
+
+        depositEnergy3DStepTraversal(
+            voxelIndices=truncatedVoxelIndices,
+            segmentLengths=truncatedSegmentLengths,
+            segmentCounts=truncatedSegmentCounts,
+            energyLossPerStep=realEnergyLossStep,
+            energyDepositedVector=energyGrid,
+            initialEnergies=initialEnergies[multipleIndices],
+            fluenceVector=fluenceGrid,
+            energyFluenceVector=energyFluenceGrid
+        )
+
+        newEnergies[multipleIndices] = finalEnergy
+        #print('New energies:', newEnergies[multipleIndices])
+        
+        #print('------------------------------------')
+
+    return newPositions, newDirections, newEnergies
+
+
+# --------------- COMMON FUNCTIONS ---------------
+@numba.jit(nopython=True, fastmath=True)
+def depositEnergy3DStepTraversal(
+    voxelIndices, segmentLengths, segmentCounts, energyLossPerStep, energyDepositedVector,
+    initialEnergies, fluenceVector, energyFluenceVector
+):
+    nParticles = segmentCounts.shape[0]
+
+    for i in range(nParticles): 
+        count = segmentCounts[i]
+        if count == 0:
+            continue
+
+        totalLen = 0.0
+        for j in range(count):
+            totalLen += segmentLengths[i, j]
+        if totalLen <= 0.0:
+            continue
+
+        inverseTotalLength = 1.0 / totalLen
+        eInstant = initialEnergies[i]
+        for j in range(count):
+            frac = segmentLengths[i, j] * inverseTotalLength
+            deposit = frac * energyLossPerStep[i]
+            x, y, z = voxelIndices[i, j]
+            
+            energyDepositedVector[x, y, z] += deposit
+            fluenceVector[x, y, z] += segmentLengths[i,j]
+            # eMid = eInstant - 0.5 * deposit
+            # energyFluenceVector[x, y, z] += segmentLengths[i,j] * eMid
+            energyFluenceVector[x, y, z] += segmentLengths[i,j] * eInstant
+            #print(f'Depositing energy: {deposit} at voxel ({x}, {y}, {z})')
+            #print(f'Fluence: segment length: {segmentLengths[i,j]} at voxel ({x}, {y}, {z})')
+            #print(f'Energy fluence: {segmentLengths[i,j] * E_instant} at voxel ({x}, {y}, {z})')
+            
+            # Update energy
+            #eInstant -= deposit
+        
+# --------------- COMMON FUNCTIONS ---------------
+def simulateBatchParticlesVectorized(
+    batchSize, data, gridMap, initialEnergy,
+    bigVoxelSize, energyDepositedVector, fluenceVector, 
+    energyFluenceVector, cdfs, binEdges, 
+    method='transformation',
+    angleStep=None, energyStep=None
+):
+    # Convert to numpy arrays
+    bigVoxelSize = np.array(bigVoxelSize)
+    gridShape = np.array(gridMap.shape)
+    
+    # Random -10 mm to +10 mm in X and Y axis
+    initialZ = -150.0  # Initial position in mm
+    xyRange = 25.0 # Half-width in mm (so total 50 mm x 50 mm field)
+    
+    # Generate uniform random positions in X and Y 
+    x = np.random.uniform(-xyRange, xyRange, batchSize)
+    y = np.random.uniform(-xyRange, xyRange, batchSize)
+    z = np.full(batchSize, initialZ)
+    position = np.stack([x, y, z], axis=1)
+    
+    energy = np.full(batchSize, initialEnergy)
+    velocity = np.tile([0.0, 0.0, 1.0], (batchSize, 1))
+    active = np.ones(batchSize, dtype=bool)
+    #print(f'Initial Energy: {initialEnergy} MeV')
+    #print(f'Initial Position: {position}')
+
+    zStep = 1.0  # Fixed step of 1 mm
     while np.any(active):
         energyActive = energy[active]
-        n = energyActive.shape[0]
         
-        materials = getMaterialsAtPosition(position[active], materialGrid, bigVoxelSize, 
-                materialGrid.shape, data['materials'])
-        
-        realAngles, realEnergies = sampleFromCDF(data=data, materials=materials, energies=energyActive, 
-                materialToIndex=materialToIndex, cdfs=cdfs, binEdges=binEdges, method=method, 
-                angleStep=angleStep, energyStep=energyStep)
-
-        energyLossPerStep = energyActive - realEnergies
-        energy[active] = realEnergies
-    
-        # Print interesting data
-        #print(f"EnergyActive: {energyActive}, SampleEnergies: {realEnergies}, energyLossPerStep: {energyLossPerStep}")
-        #print(f"SampleAngles: {realAngles}, Position: {position[active]}")
-        calculateEnergyDepositBinBatch(
-            position[active], bigVoxelSize, energyLossPerStep,
-            energyDepositedVector, energyDepositedVector.shape
+        # Update directions and positions every time a boundary has been crossed or the step length is exceeded
+        position[active], velocity[active], energy[active] = scatteringStepMaterial(
+            initialPositions=position[active],
+            directions=velocity[active],
+            initialEnergies=energyActive,
+            energyGrid=energyDepositedVector,
+            fluenceGrid=fluenceVector,
+            energyFluenceGrid=energyFluenceVector,
+            grid=gridMap,
+            data=data,
+            cdfs=cdfs,
+            binEdges=binEdges,
+            gridShape=gridShape,
+            physicalSize=bigVoxelSize,
+            method=method,
+            angleStep=angleStep,
+            energyStep=energyStep,
+            stepLength=zStep   
         )
-         
-        # === Update velocity based on scattering ===
-        phi = np.random.uniform(0, 2 * np.pi, n)
-        theta = np.radians(realAngles)
-
-        v = velocity[active]
-        perp = np.cross(v, zAxis)
-        norms = np.linalg.norm(perp, axis=1, keepdims=True)
+        # print(f'Position Active Particles: {position[active]}')
+        # print(f'Energy Active Particles: {energy[active]} MeV')
         
-        # Handle edge case where the cross product is zero
-        perp[norms[:, 0] < 1e-8] = np.array([1.0, 0.0, 0.0])
-        perp[~(norms[:, 0] < 1e-8)] /= norms[~(norms[:, 0] < 1e-8)]
-
-        crossPerpV = np.cross(perp, v)
-        cosTheta = np.cos(theta)[:, np.newaxis]
-        sinTheta = np.sin(theta)[:, np.newaxis]
-        cosPhi = np.cos(phi)[:, np.newaxis]
-        sinPhi = np.sin(phi)[:, np.newaxis]
-
-        w = cosTheta * v + sinTheta * (cosPhi * crossPerpV + sinPhi * perp)
-        w /= np.linalg.norm(w, axis=1, keepdims=True)
-        velocity[active] = w
-        
-        # Update position
-        position[active] += velocity[active] * dt
-
         # Check if particles are still active
         withinBounds = np.all(
             (position[active] >= -bigVoxelSize) & (position[active] <= bigVoxelSize),
             axis=1
         )
-        realEnergiesValid = realEnergies > 0
+        realEnergiesValid = energy[active] > 0
         active[active] = realEnergiesValid & withinBounds
+
+       
+# --------------- COMMON FUNCTIONS ---------------
+def updateDirection(velocity, realAngles):
+    numParticles = velocity.shape[0]
+
+    # Sample random azimuthal angles phi ∈ [0, 2π)
+    phiAngles = np.random.uniform(0, 2 * np.pi, numParticles)
+    thetaAngles = np.radians(realAngles)  # convert degrees to radians
+
+    v = velocity  # shape (numParticles, 3)
+    zAxis = np.array([0.0, 0.0, 1.0])
+
+    # Compute perpendicular vector to v to construct rotation plane
+    perpVectors = np.cross(v, zAxis)
+    perpNorms = np.linalg.norm(perpVectors, axis=1, keepdims=True)
+
+    # Handle near-parallel cases with a fallback axis
+    smallMask = (perpNorms[:, 0] < 1e-8)
+    perpVectors[smallMask] = np.cross(v[smallMask], np.array([1.0, 0.0, 0.0]))
+    perpNorms[smallMask] = np.linalg.norm(perpVectors[smallMask], axis=1, keepdims=True)
+    perpVectors /= perpNorms  # normalize perpendicular vector
+
+    # Construct random rotation axis in scattering cone
+    cosPhi = np.cos(phiAngles)[:, None]
+    sinPhi = np.sin(phiAngles)[:, None]
+    rotationAxes = perpVectors * cosPhi + np.cross(v, perpVectors) * sinPhi
+    rotationAxes /= np.linalg.norm(rotationAxes, axis=1, keepdims=True)
+
+    # Rodrigues' rotation formula (vectorized)
+    cosTheta = np.cos(thetaAngles)[:, None]
+    sinTheta = np.sin(thetaAngles)[:, None]
+
+    dotProduct = np.sum(rotationAxes * v, axis=1, keepdims=True)
+    rotatedV = (
+        v * cosTheta +
+        np.cross(rotationAxes, v) * sinTheta +
+        rotationAxes * dotProduct * (1 - cosTheta)
+    )
+    rotatedV /= np.linalg.norm(rotatedV, axis=1, keepdims=True)
+
+    newVelocity = rotatedV
+
+    return newVelocity
+
         
-# --------------- COMMON FUNCTIONS ----------------
+# --------------- COMMON FUNCTIONS ---------------
 def simulateBatchParticlesWorker(args):
-    method = args[17] 
+    method = args[22] 
     
     # Common extraction for all methods
     (
         shm_name, shape, dtype_str,
         shm_cdfs_name, cdfs_shape, cdfs_dtype_str,
         shm_energy_deposited_name, energy_deposited_shape, energy_deposited_dtype_str,
+        shm_fluence_name, fluence_shape, fluence_dtype_str,
+        shm_energy_fluence_name, energy_fluence_shape, energy_fluence_dtype_str,
         batchSize, materials, energies,
-        grid, initialEnergy,
-        materialToIndex, bigVoxelSize,
-        seed, _  # method is already extracted
-    ) = args[:18]
+        gridMaterial, initialEnergy,
+        bigVoxelSize, seed, _  # method is already extracted
+    ) = args[:23]
 
     # Default to None (for both methods)
     binEdges = angleStep = energyStep = None
@@ -704,12 +863,12 @@ def simulateBatchParticlesWorker(args):
     if method == 'normalization':
         (
             shm_bin_edges_name, bin_edges_shape, bin_edges_dtype_str
-        ) = args[18:]
+        ) = args[23:]
 
     elif method == 'transformation':
         (
             binEdges, angleStep, energyStep
-        ) = args[18:]
+        ) = args[23:]
 
     else:
         raise ValueError(f"Unknown sampling method: {method}")
@@ -729,6 +888,12 @@ def simulateBatchParticlesWorker(args):
     existing_shm_energy_deposited = shared_memory.SharedMemory(name=shm_energy_deposited_name)
     energyDepositedVector = np.ndarray(energy_deposited_shape, dtype=np.dtype(energy_deposited_dtype_str), buffer=existing_shm_energy_deposited.buf)
 
+    # Attach to shared memory for fluence and energy fluence
+    existing_shm_fluence = shared_memory.SharedMemory(name=shm_fluence_name)
+    fluence = np.ndarray(fluence_shape, dtype=np.dtype(fluence_dtype_str), buffer=existing_shm_fluence.buf)
+    existing_shm_energy_fluence = shared_memory.SharedMemory(name=shm_energy_fluence_name)
+    energyFluence = np.ndarray(energy_fluence_shape, dtype=np.dtype(energy_fluence_dtype_str), buffer=existing_shm_energy_fluence.buf)
+    
     # Reconstruct the data dictionary in each worker
     data = {
         'probTable': probTable,
@@ -741,22 +906,19 @@ def simulateBatchParticlesWorker(args):
         existing_shm_bin_edges = shared_memory.SharedMemory(name=shm_bin_edges_name)
         binEdges = np.ndarray(bin_edges_shape, dtype=np.dtype(bin_edges_dtype_str), buffer=existing_shm_bin_edges.buf)
         
-    return simulateBatchParticlesVectorized(batchSize=batchSize, data=data, materialGrid=grid, initialEnergy=initialEnergy,
-            materialToIndex=materialToIndex, bigVoxelSize=bigVoxelSize, energyDepositedVector=energyDepositedVector, cdfs=cdfs,
-            binEdges=binEdges, method=method, angleStep=angleStep, energyStep=energyStep)
-    
+    return simulateBatchParticlesVectorized(batchSize=batchSize, data=data, gridMap=gridMaterial, initialEnergy=initialEnergy,
+            bigVoxelSize=bigVoxelSize, energyDepositedVector=energyDepositedVector, fluenceVector=fluence, energyFluenceVector=energyFluence,
+            cdfs=cdfs, binEdges=binEdges, method=method, angleStep=angleStep, energyStep=energyStep)
 
-# --------------- COMMON FUNCTIONS ----------------
-def simulateBatch(args):
-    return simulateBatchParticlesWorker(args)
-
-# --------------- COMMON FUNCTIONS ----------------
+# --------------- COMMON FUNCTIONS ---------------
 def runMultiprocessedBatchedSim(
     totalSamples, batchSize, numWorkers,
     shm_prob_table, prob_table_shape, prob_table_dtype,
     shm_cdfs, cdfs_shape, cdfs_dtype,
     shm_energy_deposited, energy_deposited_shape, energy_deposited_dtype,
-    data, grid, initialEnergy, materialToIndex, 
+    shm_fluence, fluence_shape, fluence_dtype,
+    shm_energy_fluence, energy_fluence_shape, energy_fluence_dtype,
+    data, gridMaterial, initialEnergy, 
     bigVoxelSize, method = 'transformation',
     #Optional for transformation
     binEdges = None, angleStep = None, energyStep = None,
@@ -782,7 +944,7 @@ def runMultiprocessedBatchedSim(
     numBatches = (totalSamples + batchSize - 1) // batchSize
     argsList = []
     
-    baseSeed = 189853376
+    baseSeed = 767435633
     seedSequence = np.random.SeedSequence(baseSeed)
     childSeeds = seedSequence.spawn(numBatches)
     
@@ -794,11 +956,12 @@ def runMultiprocessedBatchedSim(
             shm_prob_table.name, prob_table_shape, prob_table_dtype.name,
             shm_cdfs.name, cdfs_shape, cdfs_dtype.name,
             shm_energy_deposited.name, energy_deposited_shape, energy_deposited_dtype.name,
+            shm_fluence.name, fluence_shape, fluence_dtype.name,
+            shm_energy_fluence.name, energy_fluence_shape, energy_fluence_dtype.name,
             min(batchSize, totalSamples - i * batchSize),
             data['materials'], data['energies'], 
-            grid, initialEnergy, materialToIndex,
-            bigVoxelSize, 
-            currentSeed, # seed for each batch, reproducible
+            gridMaterial, initialEnergy,
+            bigVoxelSize, currentSeed, # seed for each batch, reproducible
             method,
         ]
 
@@ -817,47 +980,9 @@ def runMultiprocessedBatchedSim(
     chunkSize = 1
     with Pool(processes=numWorkers) as pool:
         list(tqdm(pool.imap_unordered(simulateBatchParticlesWorker, argsList, chunksize=chunkSize), total=len(argsList)))
-        
-# --------------- COMMON FUNCTIONS ----------------
-def plotSamplingDistribution(data : dict, material : str, fixedEnergyIdx : int, materialToIndex : dict, cdfs : np.ndarray, 
-            method='transformation', N=10000, binEdges=None):
-    availableEnergies = data['energies']
-    fixedEnergy = availableEnergies[fixedEnergyIdx]
-    energies = np.full(N, fixedEnergy)
     
-    if method == 'transformation':
-        sampleAngles, sampledEnergies = sampleFromCDF(data=data, material=material, energies=energies, 
-                materialToIndex=materialToIndex, cdfs=cdfs, method=method)
-    elif method == 'normalization':
-        sampleAngles, sampledEnergies = sampleFromCDF(data=data, material=material, energies=energies, 
-                materialToIndex=materialToIndex, cdfs=cdfs, binEdges=binEdges, method=method)     
-    else:
-        raise ValueError(f"Unknown sampling method: {method}")
-    
-    dfSamples = pd.DataFrame({
-        'angle': sampleAngles,
-        'scattered_energy': sampledEnergies
-        })
-    dfSamples.to_csv(f'SamplingData_{method}_{material}_{fixedEnergy:.1f}MeV.csv', index=False)
-
-    fig, axs = plt.subplots(1, 2, figsize=(12, 6))
-    
-    sns.histplot(sampleAngles, bins=100, edgecolor="black", color='orange', kde=False, ax=axs[0])
-    axs[0].set_xlabel('Angle')
-    axs[0].set_yscale('log')
-    axs[0].set_ylabel('Count')
-    
-    sns.histplot(sampledEnergies, bins=100, color='green', edgecolor='black', kde=False, ax=axs[1])
-    axs[1].set_xlabel('Scattered Energy (MeV)')
-    axs[1].set_yscale('log')
-    axs[1].set_ylabel('Count')
-
-    plt.tight_layout()
-    plt.savefig(f'SamplingDistribution_{method}_{material}_{fixedEnergy:.1f}MeV.pdf')
-    plt.close(fig)  
-    
-# --------------- COMMON FUNCTIONS ----------------
-def createSharedMemory(arr : np.ndarray) -> tuple:
+# --------------- COMMON FUNCTIONS ---------------
+def createSharedMemory(arr : np.ndarray) -> tuple:    
     shm = shared_memory.SharedMemory(create=True, size=arr.nbytes)
     shm_np = np.ndarray(arr.shape, dtype=arr.dtype, buffer=shm.buf)
     np.copyto(shm_np, arr)
@@ -879,21 +1004,25 @@ if __name__ == "__main__":
     
     # Shared settings
     samplingN = 1000000
-    initialEnergy = 200.0  # MeV
-    bigVoxelSize = np.array((33.3333, 33.33333, 50), dtype=np.float32)
-    voxelShapeBins = (50, 50, 300)
-    dt = 1 / 3
-    
-    # Upload material grid
-    # gridPath = './Grid/GridMaterial.npy'
-    # grid = np.load(gridPath)
-    grid = np.zeros(voxelShapeBins, dtype=np.float32)
+    initialEnergy = 200.  # MeV
+    bigVoxelSize = np.array((100., 100., 150.), dtype=np.float32) # in mm
+    voxelShapeBins = np.array((50, 50, 300), dtype=np.int32)
+    voxelSize = 2 * bigVoxelSize / voxelShapeBins # in mm 
     
     angleRange = (0, 70)
     energyRange = (-0.6, 0)
     angleBins = 100
     energyBins = 100
-
+    
+    # Load grid of heterogeneous materials
+    gridMaterial = np.zeros((voxelShapeBins[0], voxelShapeBins[1], voxelShapeBins[2]), dtype=np.int32)
+    gridPath = '../TableMaterials/materialGrid.npy'
+    if not os.path.exists(gridPath):
+        raise FileNotFoundError(f"Grid file not found at {gridPath}. Please ensure the grid is generated first. Loading default grid with zeros.")
+    else:
+        print(f"Loading grid from {gridPath}")
+        gridMaterial = np.load(gridPath, allow_pickle=True)
+    
     # Directory setup
     baseFolder = {
         'transformation': {
@@ -932,7 +1061,7 @@ if __name__ == "__main__":
         'materials': materials,
         'energies': energies
     }
-    
+
     if method == 'normalization':
         # Load extra arrays only used in normalization
         data['thetaMax'] = rawData['thetaMax']
@@ -941,9 +1070,8 @@ if __name__ == "__main__":
         data['energyMax'] = rawData['energyMax']
         
     rawData.close()
-    
-    # Build CDFs
-    materialToIndex = {mat: idx for idx, mat in enumerate(data['materials'])}      
+
+    # Build CDFs 
     if method == 'normalization':
         cdfs, binEdges = buildCdfsAndCompactBins(data=data)
         # Remove unnecessary keys from data to free memory
@@ -957,6 +1085,12 @@ if __name__ == "__main__":
     shm_prob_table, prob_table_shape, prob_table_dtype = createSharedMemory(probTable)
     shm_cdfs, cdfs_shape, cdfs_dtype = createSharedMemory(cdfs)
     shm_energy_deposited, energyDeposited_shape, energyDeposited_dtype = createSharedMemory(energyDeposited)
+    
+    # Shared memory for fluence and energyFluence
+    fluence = np.zeros(voxelShapeBins, dtype=np.float32)
+    energyFluence = np.zeros(voxelShapeBins, dtype=np.float32)
+    shm_fluence, fluence_shape, fluence_dtype = createSharedMemory(fluence)
+    shm_energy_fluence, energyFluence_shape, energyFluence_dtype = createSharedMemory(energyFluence)
     
     batchSize = 10000
     numWorkers = cpu_count()
@@ -992,15 +1126,33 @@ if __name__ == "__main__":
         shm_prob_table, prob_table_shape, prob_table_dtype,
         shm_cdfs, cdfs_shape, cdfs_dtype,
         shm_energy_deposited, energyDeposited_shape, energyDeposited_dtype,
-        data, grid, initialEnergy, materialToIndex,
+        shm_fluence, fluence_shape, fluence_dtype,
+        shm_energy_fluence, energyFluence_shape, energyFluence_dtype,
+        data, gridMaterial, initialEnergy,
         bigVoxelSize, method, 
         **kwargs
     )
                     
     energyVector3D = np.ndarray(energyDeposited.shape, dtype=energyDeposited.dtype, buffer=shm_energy_deposited.buf).copy()
-    np.save(Path(npyPath) / f'projectionXZSimulation_{method}.npy', energyVector3D)
-        
+    np.save(Path(npyPath) / f'energyDeposited{method}.npy', energyVector3D)
+    
+    # First same units than topas
+    # Fluence 1 / mm^2, energyFluence MeV / mm^2
+    volumeVoxel = voxelSize[0] * voxelSize[1] * voxelSize[2]
+    fluenceVector3D = np.ndarray(fluence.shape, dtype=fluence.dtype, buffer=shm_fluence.buf).copy()
+    fluenceVector3D = fluenceVector3D / volumeVoxel
+    
+    energyFluenceVector3D = np.ndarray(energyFluence.shape, dtype=energyFluence.dtype, buffer=shm_energy_fluence.buf).copy()
+    energyFluenceVector3D = energyFluenceVector3D / volumeVoxel
+    
+    fluenceThreshold = 1e-6
+    mask = fluenceVector3D > fluenceThreshold
+    meanEnergyGrid = np.zeros_like(fluenceVector3D)
+    meanEnergyGrid[mask] = energyFluenceVector3D[mask] / fluenceVector3D[mask]
+    np.save(Path(npyPath) / f'meanEnergyGrid{method}.npy', meanEnergyGrid)
+         
     totalEnergy = energyVector3D.sum()
+    print(f"Total energy: {totalEnergy:.6f} MeV")
     fileforEnergyDeposit = f"{csvPath}EnergyAtBoxByBinsMySimulation_{method}.csv"
     with open(fileforEnergyDeposit, 'w', newline='') as file:
         # Write the header manually with #
@@ -1032,10 +1184,14 @@ if __name__ == "__main__":
     shm_cdfs.close()
     shm_cdfs.unlink()
     
+    shm_fluence.close()
+    shm_fluence.unlink()
+    shm_energy_fluence.close()
+    shm_energy_fluence.unlink()
+    
     if method == 'normalization':
         shm_bin_edges.unlink()
         shm_bin_edges.close()
-        
         
     endTime = time.time()
     print(f"Simulation time: {endTime - startTime:.12f} seconds")

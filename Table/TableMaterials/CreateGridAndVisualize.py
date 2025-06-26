@@ -21,17 +21,16 @@ WATER = 1
 BONE = 2
 SOFT = 3
 
-voxelShapeBins = (50, 50, 300)  # (X, Y, Z)
 materialGrid = np.zeros(voxelShapeBins, dtype=np.int16)
 
-# Divide Z into 4 blocks
-Nz = voxelShapeBins[2]
-quarter = Nz // 4
+# # Divide Z into 4 blocks
+# Nz = voxelShapeBins[2]
+# quarter = Nz // 4
 
-materialGrid[:, :, 0:quarter] = LUNG
-materialGrid[:, :, quarter:2*quarter] = WATER
-materialGrid[:, :, 2*quarter:3*quarter] = BONE
-materialGrid[:, :, 3*quarter:] = SOFT
+# materialGrid[:, :, 0:quarter] = LUNG
+# materialGrid[:, :, quarter:2*quarter] = WATER
+# materialGrid[:, :, 2*quarter:3*quarter] = BONE
+# materialGrid[:, :, 3*quarter:] = SOFT
 
 # Z = 0–74:      LUNG
 # Z = 75–149:    WATER

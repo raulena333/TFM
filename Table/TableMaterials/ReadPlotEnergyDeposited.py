@@ -34,7 +34,7 @@ if __name__ == "__main__":
         z = zFlip(z)
         grid = np.zeros(voxelShapeBins)
         grid[x, y, z] = vals
-        return grid
+        return grid  
 
     # Load the 3D grids
     energyGrid = loadGridFromCSV(energyFilePath)
@@ -42,13 +42,18 @@ if __name__ == "__main__":
     energyFluenceGrid = loadGridFromCSV(energyFluencePath)
 
     # Save energyGrid
-    np.save('EnergyGridTOPAS.npy', energyGrid)
+    np.save('energyDepositedTOPAS.npy', energyGrid)
 
     # Compute average energy: EnergyFluence / Fluence (with threshold)
-    fluenceThreshold = 1e-6
+    fluenceThreshold = 1e0
     meanEnergyGrid = np.zeros_like(energyGrid)
     mask = fluenceGrid > fluenceThreshold
     meanEnergyGrid[mask] = energyFluenceGrid[mask] / fluenceGrid[mask]
 
     # Save the average energy per voxel
     np.save('meanEnergyGridTOPAS.npy', meanEnergyGrid)
+    
+    # Total energy in grid
+    totalEnergy = np.sum(energyGrid)
+    print(f"Total energy: {totalEnergy:.6f} MeV")
+

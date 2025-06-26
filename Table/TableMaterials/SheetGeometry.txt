@@ -19,15 +19,15 @@ b:Ge/Patient/OutputMaterialIndex = "True"
 
 d:Ge/Patient/TransX = 0. mm
 d:Ge/Patient/TransY = 0. mm
-d:Ge/Patient/TransZ = 0 mm
+d:Ge/Patient/TransZ = 0. mm
 d:Ge/Patient/RotX = 0. deg
 d:Ge/Patient/RotY = 0. deg
 d:Ge/Patient/RotZ = 0. deg
-i:Ge/Patient/NumberOfVoxelsX = 50
-i:Ge/Patient/NumberOfVoxelsY = 50
-i:Ge/Patient/NumberOfVoxelsZ = 300
-d:Ge/Patient/VoxelSizeX = 4. mm
-d:Ge/Patient/VoxelSizeY = 4. mm
+i:Ge/Patient/NumberOfVoxelsX = 9
+i:Ge/Patient/NumberOfVoxelsY = 9
+i:Ge/Patient/NumberOfVoxelsZ = 80
+d:Ge/Patient/VoxelSizeX = 1. mm
+d:Ge/Patient/VoxelSizeY = 1. mm
 d:Ge/Patient/VoxelSizeZ = 1. mm
 
 # b:Ph/CutSecondaries = "True"
@@ -37,7 +37,7 @@ s:Ge/BeamPosition/Type = "Group"
 s:Ge/BeamPosition/Parent  = "World"
 d:Ge/BeamPosition/TransX = .0 mm
 d:Ge/BeamPosition/TransY = .0 mm
-d:Ge/BeamPosition/TransZ = 150.0 mm
+d:Ge/BeamPosition/TransZ = 40. mm
 
 ####################################################
 # Scoring
@@ -60,13 +60,13 @@ s:Sc/FluenceAtPatient/OnlyIncludeParticlesOfGeneration = "Primary"
 
 s:Sc/EnergyFluenceAtPatient/Quantity = "EnergyFluence"
 s:Sc/EnergyFluenceAtPatient/Component = "Patient"
+sv:Sc/EnergyFluenceAtPatient/OnlyIncludeParticlesNamed = 1 "proton"
+s:Sc/EnergyFluenceAtPatient/OnlyIncludeParticlesOfGeneration = "Primary"
 s:Sc/EnergyFluenceAtPatient/OutputFile = "EnergyFluenceAtPatientByBinsTOPAS"
 s:Sc/EnergyFluenceAtPatient/OutputType = "csv"
 s:Sc/EnergyFluenceAtPatient/IfOutputFileAlreadyExists = "Overwrite"
 #b:Sc/EnergyFluenceAtPatient/OutputToConsole = "TRUE"
 #b:Sc/EnergyFluenceAtPatient/Visualize = "TRUE"
-sv:Sc/EnergyFluenceAtPatient/OnlyIncludeParticlesNamed = 1 "proton"
-s:Sc/EnergyFluenceAtPatient/OnlyIncludeParticlesOfGeneration = "Primary"
 
 ####################################################
 # Beam Source
@@ -76,8 +76,8 @@ s:So/MySource/Component = "BeamPosition"
 s:So/MySource/BeamParticle = "proton"
 s:So/MySource/BeamPositionDistribution = "None" # None, Flat or Gaussian
 #s:So/MySource/BeamPositionCutoffShape = "Rectangle"  # Rectangle or Ellipse (if Flat or Gaussian)
-#d:So/MySource/BeamPositionCutoffX = 25. mm
-#d:So/MySource/BeamPositionCutoffY = 25. mm
+#d:So/MySource/BeamPositionCutoffX = 2.5 mm
+#d:So/MySource/BeamPositionCutoffY = 2.5 mm
 #d:So/MySource/BeamPositionSpreadX = 0.1667 mm
 #d:So/MySource/BeamPositionSpreadY = 0.1667 mm
 s:So/MySource/BeamAngularDistribution = "None" 
@@ -86,7 +86,7 @@ s:So/MySource/BeamAngularDistribution = "None"
 #d:So/MySource/BeamAngularSpreadX = 0.0032 rad
 #d:So/MySource/BeamAngularSpreadY = 0.0032 rad
 s:So/MySource/BeamEnergySpectrumType = "Discrete"
-dv:So/MySource/BeamEnergySpectrumValues = 1 200 MeV
+dv:So/MySource/BeamEnergySpectrumValues = 1 100 MeV
 uv:So/MySource/BeamEnergySpectrumWeights = 1 1.0
 i:So/MySource/NumberOfHistoriesInRun = 10000000
 #i:So/MySource/NumberOfHistoriesInRandomJob = 0
@@ -97,8 +97,8 @@ i:So/MySource/NumberOfHistoriesInRun = 10000000
 #s:Gr/MyOGL/Type = "OpenGL"
 #i:Gr/MyOGL/WidnowSizeX = 600
 #i:Gr/MyOGL/WindowSizeY = 600
-#d:Gr/MyOGL/Theta = 70 deg
-#d:Gr/MyOGL/Phi = 20 deg
+#d:Gr/MyOGL/Theta = 90 deg
+#d:Gr/MyOGL/Phi = 0 deg
 #s:Gr/MyOGL/Projection = "Perspective"
 #d:Gr/MyOGL/PerspectiveAngle = 60 deg
 #b:Gr/MyOGL/IncludeAxes = "True"
@@ -107,9 +107,9 @@ i:Gr/Verbosity = 0
 i:Ts/NumberOfThreads = 0
 i:Ts/ParameterizationErrorMaxReports = 1
 s:Gr/RefreshEvery = "Run"
-i:Ts/Seed = 7348908
+i:Ts/Seed = 7348907
 b:Ts/ShowCPUTime = "True"
-# b:Ts/UseQt = "True"
+#b:Ts/UseQt = "True"
 #b:Ts/PauseBeforeQuit = "True"
 # b:Gr/MyOGL/CopyOpenGLToPDF = "TRUE"
 
