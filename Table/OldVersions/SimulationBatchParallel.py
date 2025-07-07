@@ -22,7 +22,7 @@ params = {
     'axes.labelsize': 14,
     'legend.fontsize': 14
 }
-pylab.rcParams.update(params)
+pylab.rcParams.update(params) 
 
 class HistogramSampler:
     def __init__(self, hist, angleRange, energyRange):

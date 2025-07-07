@@ -23,12 +23,12 @@ d:Ge/Patient/TransZ = 0. mm
 d:Ge/Patient/RotX = 0. deg
 d:Ge/Patient/RotY = 0. deg
 d:Ge/Patient/RotZ = 0. deg
-i:Ge/Patient/NumberOfVoxelsX = 9
-i:Ge/Patient/NumberOfVoxelsY = 9
-i:Ge/Patient/NumberOfVoxelsZ = 80
+i:Ge/Patient/NumberOfVoxelsX = 1
+i:Ge/Patient/NumberOfVoxelsY = 1
+i:Ge/Patient/NumberOfVoxelsZ = 1
 d:Ge/Patient/VoxelSizeX = 1. mm
 d:Ge/Patient/VoxelSizeY = 1. mm
-d:Ge/Patient/VoxelSizeZ = 1. mm
+d:Ge/Patient/VoxelSizeZ = 5. mm
 
 # b:Ph/CutSecondaries = "True"
 
@@ -37,11 +37,21 @@ s:Ge/BeamPosition/Type = "Group"
 s:Ge/BeamPosition/Parent  = "World"
 d:Ge/BeamPosition/TransX = .0 mm
 d:Ge/BeamPosition/TransY = .0 mm
-d:Ge/BeamPosition/TransZ = 40. mm
+d:Ge/BeamPosition/TransZ = 3. mm
 
 ####################################################
 # Scoring
 ####################################################
+s:Sc/PhaseSpacePatient/Quantity = "PhaseSpace"
+b:Sc/PhaseSpacePatient/Visualize = "True"
+s:Sc/PhaseSpacePatient/Surface = "Patient/ZMinusSurface"
+s:Sc/PhaseSpacePatient/OutputType = "ASCII"
+s:Sc/PhaseSpacePatient/OutputFile = "OutputVoxel"
+s:Sc/PhaseSpacePatient/IfOutputFileAlreadyExists = "Overwrite"  # "Increment"
+b:Sc/PhaseSpacePatient/IncludeVertexInfo = "True"
+sv:Sc/PhaseSpacePatient/OnlyIncludeParticlesNamed = 1 "Proton"
+s:Sc/PhaseSpacePatient/OnlyIncludeParticlesOfGeneration = "Primary"
+
 s:Sc/EnergyAtPatient/Quantity = "EnergyDeposit"
 s:Sc/EnergyAtPatient/Component = "Patient"
 s:Sc/EnergyAtPatient/OutputFile = "EnergyAtPatientByBinsTOPAS"
@@ -86,19 +96,19 @@ s:So/MySource/BeamAngularDistribution = "None"
 #d:So/MySource/BeamAngularSpreadX = 0.0032 rad
 #d:So/MySource/BeamAngularSpreadY = 0.0032 rad
 s:So/MySource/BeamEnergySpectrumType = "Discrete"
-dv:So/MySource/BeamEnergySpectrumValues = 1 100 MeV
+dv:So/MySource/BeamEnergySpectrumValues = 1 50 MeV
 uv:So/MySource/BeamEnergySpectrumWeights = 1 1.0
-i:So/MySource/NumberOfHistoriesInRun = 10000000
+i:So/MySource/NumberOfHistoriesInRun = 10
 #i:So/MySource/NumberOfHistoriesInRandomJob = 0
 
 ####################################################
 # Visualization
 ####################################################
-#s:Gr/MyOGL/Type = "OpenGL"
-#i:Gr/MyOGL/WidnowSizeX = 600
-#i:Gr/MyOGL/WindowSizeY = 600
-#d:Gr/MyOGL/Theta = 90 deg
-#d:Gr/MyOGL/Phi = 0 deg
+s:Gr/MyOGL/Type = "OpenGL"
+i:Gr/MyOGL/WidnowSizeX = 600
+i:Gr/MyOGL/WindowSizeY = 600
+d:Gr/MyOGL/Theta = 70 deg
+d:Gr/MyOGL/Phi = 20 deg
 #s:Gr/MyOGL/Projection = "Perspective"
 #d:Gr/MyOGL/PerspectiveAngle = 60 deg
 #b:Gr/MyOGL/IncludeAxes = "True"
@@ -109,8 +119,8 @@ i:Ts/ParameterizationErrorMaxReports = 1
 s:Gr/RefreshEvery = "Run"
 i:Ts/Seed = 7348907
 b:Ts/ShowCPUTime = "True"
-#b:Ts/UseQt = "True"
-#b:Ts/PauseBeforeQuit = "True"
+b:Ts/UseQt = "True"
+b:Ts/PauseBeforeQuit = "True"
 # b:Gr/MyOGL/CopyOpenGLToPDF = "TRUE"
 
 sv:Ph/Default/Modules = 1 "g4em-standard_opt0"

@@ -9,7 +9,8 @@ b:Ge/World/Invisible = "TRUE"
 # TestBox:
 s:Ge/myBox/Type = "TsBox" 
 s:Ge/myBox/Parent  = "World"
-s:Ge/myBox/Material = "G4_WATER"
+s:Ge/myBox/Material = "G4_LUNG_ICRP"
+
 #b:Ge/myBox/IsParallel = "True"
 d:Ge/myBox/HLX = 10. cm
 d:Ge/myBox/HLY = 10. cm
@@ -57,59 +58,26 @@ i:So/MySource/NumberOfHistoriesInRun = 1000000
 ####################################################
 # Scoring
 ####################################################
-# PhaseSpace Sub1
-#s:Sc/PhaseSpaceBox/Quantity = "PhaseSpace"
-#b:Sc/PhaseSpaceBox/Visualize = "True"
-#s:Sc/PhaseSpaceBox/Surface = "myBox/ZMinusSurface"
-#s:Sc/PhaseSpaceBox/OutputType = "ASCII"
-#s:Sc/PhaseSpaceBox/OutputFile = "BigBoxSimulationTOPAS"
-#s:Sc/PhaseSpaceBox/IfOutputFileAlreadyExists = "Overwrite"  # "Increment"
-#b:Sc/PhaseSpaceBox/IncludeVertexInfo = "True"
-#sv:Sc/PhaseSpaceBox/OnlyIncludeParticlesNamed = 1 "Proton"
-
-#s:Sc/DoseAtBox/Quantity = "DoseToMedium"
-#s:Sc/DoseAtBox/Component = "myBox"
-#s:Sc/DoseAtBox/OutputFile = "DoseAtBoxByBinsTOPAS"
-#s:Sc/DoseAtBox/IfOutputFileAlreadyExists = "Overwrite"
-#b:Sc/DoseAtBox/OutputToConsole = "True"
-
 s:Sc/EnergyAtBox/Quantity = "EnergyDeposit"
 s:Sc/EnergyAtBox/Component = "myBox"
 s:Sc/EnergyAtBox/OutputFile = "EnergyAtBoxByBinsTOPAS"
 s:Sc/EnergyAtBox/IfOutputFileAlreadyExists = "Overwrite"
 # b:Sc/EnergyAtBox/OutputToConsole = "True"
 
-#s:Sc/FluenceAtBox/Quantity = "Fluence"
-#s:Sc/FluenceAtBox/Component = "myBox"
-#s:Sc/FluenceAtBox/OutputFile = "FluenceAtBoxByBinsTOPAS"
-#s:Sc/FluenceAtBox/IfOutputFileAlreadyExists = "Overwrite"
+s:Sc/FluenceAtBox/Quantity = "Fluence"
+s:Sc/FluenceAtBox/Component = "myBox"
+s:Sc/FluenceAtBox/OutputFile = "FluenceAtBoxByBinsTOPAS"
+s:Sc/FluenceAtBox/IfOutputFileAlreadyExists = "Overwrite"
 #b:Sc/FluenceAtBox/OutputToConsole = "True"
 
-#s:Sc/EnergyFluenceAtBox/Quantity = "EnergyFluence"
-#s:Sc/EnergyFluenceAtBox/Component = "myBox"
-#s:Sc/EnergyFluenceAtBox/OutputFile = "EnergyFluenceAtBoxByBinsTOPAS"
-#s:Sc/EnergyFluenceAtBox/OutputType = "csv"
-#s:Sc/EnergyFluenceAtBox/IfOutputFileAlreadyExists = "Overwrite"
+s:Sc/EnergyFluenceAtBox/Quantity = "EnergyFluence"
+s:Sc/EnergyFluenceAtBox/Component = "myBox"
+s:Sc/EnergyFluenceAtBox/OutputFile = "EnergyFluenceAtBoxByBinsTOPAS"
+s:Sc/EnergyFluenceAtBox/OutputType = "csv"
+s:Sc/EnergyFluenceAtBox/IfOutputFileAlreadyExists = "Overwrite"
 #b:Sc/EnergyFluenceAtBox/OutputToConsole = "TRUE"
 #b:Sc/EnergyFluenceAtBox/Visualize = "TRUE"
 # sv:Sc/EnergyFluenceAtBox/OnlyIncludeParticlesNamed = 1 "proton"
-
-#s:Sc/ProtonLETAtBox/Quantity = "ProtonLET"
-#s:Sc/ProtonLETAtBox/Component = "myBox"
-#s:Sc/ProtonLETAtBox/OutputFile = "ProtonLETAtBoxByBinsTOPAS"
-#s:Sc/ProtonLETAtBox/IfOutputFileAlreadyExists = "Overwrite"
-#b:Sc/ProtonLETAtBox/OutputToConsole = "True"
-# sv:Sc/ProtonLETAtBox/OnlyIncludeParticlesNamed = 1 "proton"
-
-#s:Sc/TrackLengthAtBox/Quantity = "TrackLengthEstimator"
-#sv:Sc/TrackLengthAtBox/Report = 1 "Sum"
-#s:Sc/TrackLengthAtBox/Component = "myBox"
-#s:Sc/TrackLengthAtBox/OutputType = "csv"
-#b:Sc/TrackLengthAtBox/DICOMOutput32BitsPerPixel  = "True"
-#s:Sc/TrackLengthAtBox/OutputFile = "TrackLengthEstimatorAtBoxByBins"
-#s:Sc/TrackLengthAtBox/IfOutputFileAlreadyExists = "Overwrite"
-#b:Sc/TrackLengthAtBox/OutputToConsole = "True"
-#s:Sc/TrackLengthAtBox/InputFile = "./Muen.dat"
 
 ####################################################
 # Visualization

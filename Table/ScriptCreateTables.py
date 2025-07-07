@@ -2,7 +2,8 @@ import re
 import os
 import subprocess
 import numpy as np
-from scipy.interpolate import interp1d
+import argparse
+import time
 
 def modifyBeamEnergy(filePath, newEnergy):
     """
@@ -48,7 +49,7 @@ def modifyInputParameters(filePath, numberOfRuns):
     print(f"Updated number of runs to {numberOfRuns} in {filePath}.")
 
 
-def modifyMaterial(filePath, name):
+def modifyMaterial(filePath, name, method):
     """
     Modify material of the subcomponents in a TOPAS input file.
 
@@ -57,7 +58,10 @@ def modifyMaterial(filePath, name):
     - name (str): Name of the material to set.
     """
     # Regular expression pattern to match the material assignment line
-    pattern = r'(s:Ge/myBox/Material = ")([^"]*)(")'
+    if method == 'sheet':
+        pattern = r'(s:Ge/myBox/Material = ")([^"]*)(")'
+    elif method == 'sphere':
+        pattern = r'(s:Ge/mySphere/Material = ")([^"]*)(")'
     
     with open(filePath, 'r') as file:
         content = file.read()
@@ -90,7 +94,7 @@ def runTopas(filePath, dataPath):
         print("TOPAS executable not found. Make sure TOPAS is installed and in your PATH.")
         
 
-def calculateAngleEnergyProbabilities(fileName, material, numberOfBins):
+def calculateAngleEnergyProbabilities(fileName, numberOfBins):
     """
     Calculate and return 2D histograms of angle vs. energy for both transformed and normalized methods.
 
@@ -115,22 +119,28 @@ def calculateAngleEnergyProbabilities(fileName, material, numberOfBins):
 
     finalDirX, finalDirY, finalEnergy, isSign, initialEnergy = data[:, [3, 4, 5, 8, 10]].T
     energy = np.mean(initialEnergy)
-
+ 
     # ---------- TRANSFORMED ENERGY PATH ----------
     logE = np.log((initialEnergy - finalEnergy) / initialEnergy)
     logE *= 1 / np.sqrt(initialEnergy)
+    
+    # Clamp logE to the valid range
+    logE = np.clip(logE, threshold[1], threshold[0])
 
     maskTrans = (logE < threshold[0]) & (logE > threshold[1])
+    logE_T = logE[maskTrans]
     dirX_T = finalDirX[maskTrans]
     dirY_T = finalDirY[maskTrans]
     sign_T = isSign[maskTrans]
-    logE_T = logE[maskTrans]
     finalEnergy = finalEnergy[maskTrans]
 
     dirZ_T = np.sqrt(np.clip(1 - dirX_T**2 - dirY_T**2, 0, 1))
     dirZ_T[sign_T == 0] *= -1
     angle = np.degrees(np.arccos(np.clip(dirZ_T, -1.0, 1.0))) 
     angle_T = angle * np.sqrt(energy)
+    
+    # Clam angle to the valid range
+    angle_T = np.clip(angle_T, 0, threshold[2])
 
     # Apply angular cutoff
     angle_mask = angle_T <= threshold[2]
@@ -231,30 +241,66 @@ def saveToNPZ(probabilityTableTrans, probabilityTableNorm, materialList, energyL
     )
     print(f"Saved efficient 4D CUDA table to {savePathTrans}")
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Select table creation method (mutually exclusive). Example: --sheet or --sphere"
+    )
     
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument('--sheet', action='store_true', help="Create tables for a sheet of 1 mm of thickness")
+    group.add_argument('--sphere', action='store_true', help="Create tables for a sphere of 1 mm of radius")
+    
+    return parser.parse_args()
+
 if __name__ == "__main__":  
+    
+    args = parse_args()
+    methodTable = 'sheet' if args.sheet else 'sphere'
+    print(f"Selected method: {methodTable}")
+
     # Variables    
-    numberOfProtons = 10000 # Number of protons to simulate
+    numberOfProtons = 1_000_000 # Number of protons to simulate
     dataPath = '~/G4Data/'
-    voxelPhaseFile = './MyVoxelPhaseSpace.txt'
-    fileName = 'OutputVoxel.phsp'
+    
+    baseFolder = {
+        'sheet': {
+            'voxelPhaseFile': './SheetVoxelTables.txt',
+            'fileName': './OutputVoxelSheet.phsp',
+            'savePathTrans': './Table/4DTableTransSheet.npz',
+            'savePathNorm': './Table/4DTableNormSheet.npz'
+        },
+        'sphere': {
+            'voxelPhaseFile':  './SphereVoxelTables.txt',
+            'fileName': './OutputVoxelSphere.phsp',
+            'savePathTrans': './Table/4DTableTransSphere.npz',
+            'savePathNorm': './Table/4DTableNormSphere.npz'
+        }
+    }
     
     # Input parameters
     numberOfBins = 100
-    initialEnergy = 200.
-    finalEnergy = 9.
-    stepEnergy = 0.2
-    energies = np.round(np.arange(initialEnergy, finalEnergy, -stepEnergy), 1)
-      
-    materials = [#'G4_LUNG_ICRP', 
-                'G4_WATER', 
-                #'G4_BONE_CORTICAL_ICRP', 'G4_TISSUE_SOFT_ICRP' 
+    
+    # First segment: 200.6 MeV to 25 MeV with 0.2 MeV steps
+    highSegment = np.round(np.arange(200.6, 25.0, -0.2), 1)
+    # Second segment: 25 MeV to 8.7 MeV with 0.1 MeV steps
+    lowSegment = np.round(np.arange(25.0, 8.7 - 0.01, -0.1), 1) 
+    # Concatenate both segments
+    energies = np.concatenate((highSegment, lowSegment))
+
+    materials = ['G4_LUNG_ICRP', 'G4_WATER', 'G4_BONE_CORTICAL_ICRP', 'G4_TISSUE_SOFT_ICRP'
                 ] # Materials to simulate
     densities = [1.04, 1.0, 1.92, 1.03] # g/cm^3
-
-    savePathTrans = f'./Table/4DTableTrans.npz'
-    savePathNorm = f'./Table/4DTableNorm.npz'
+     
+    # G4_WATER'             9.0 MeV  #8.9,8.8,8.7
+    # G4_BONE_CORTICAL_ICRP 12.0 MeV  #11.9,11.8,11.7,11.6
+    # G4_TISSUE_SOFT_ICRP   9.2 MeV  #9.1,9.0,8.9
+    # G4_LUNG_ICRP          9.2 MeV  #9.1,9.0,8.9
         
+    voxelPhaseFile = baseFolder[methodTable]['voxelPhaseFile']  # TOPAS parameter file
+    fileName = baseFolder[methodTable]['fileName']  # TOPAS output file
+    savePathTrans = baseFolder[methodTable]['savePathTrans']  # Save path for transformed probabilities
+    savePathNorm = baseFolder[methodTable]['savePathNorm']  # Save path for normalized probabilities    
+    
     modifyInputParameters(voxelPhaseFile, numberOfProtons)     
     resultsTableTrans = {}
     resultsTableNorm = {}
@@ -263,11 +309,14 @@ if __name__ == "__main__":
     thetaMinArray = {mat: {} for mat in materials}
     energyMinArray = {mat: {} for mat in materials}
     energyMaxArray = {mat: {} for mat in materials}
+    
+    # Star time of the simulation
+    startTime = time.time()
         
     for material in materials:
 
         # Modify the material in the TOPAS file
-        modifyMaterial(voxelPhaseFile, material)
+        modifyMaterial(voxelPhaseFile, material, methodTable)
         resultsTableTrans[material] = {}
         resultsTableNorm[material] = {}
             
@@ -276,7 +325,7 @@ if __name__ == "__main__":
             runTopas(voxelPhaseFile, dataPath)
             # Retrieve energy and angle distributions probabilities
             if material == 'G4_BONE_CORTICAL_ICRP':
-                if energy < 12:
+                if energy < 11.6:
                     finalProbabilitiesTrans = np.zeros((numberOfBins, numberOfBins), dtype=np.float32)
                     finalProbabiltiesNorm = np.zeros((numberOfBins, numberOfBins), dtype=np.float32)
                     maxTheta = 0.0
@@ -284,9 +333,9 @@ if __name__ == "__main__":
                     finalEnergyMin = 0.0
                     finalEnergyMax = 0.0
                 else:
-                    finalProbabilitiesTrans, finalProbabiltiesNorm, maxTheta, minTheta, finalEnergyMin, finalEnergyMax = calculateAngleEnergyProbabilities(fileName, material, numberOfBins)
+                    finalProbabilitiesTrans, finalProbabiltiesNorm, maxTheta, minTheta, finalEnergyMin, finalEnergyMax = calculateAngleEnergyProbabilities(fileName, numberOfBins)
             elif material == 'G4_TISSUE_SOFT_ICRP' or material == 'G4_LUNG_ICRP':
-                if energy < 9.5:
+                if energy < 8.9:
                     finalProbabilitiesTrans = np.zeros((numberOfBins, numberOfBins), dtype=np.float32)
                     finalProbabiltiesNorm = np.zeros((numberOfBins, numberOfBins), dtype=np.float32)
                     maxTheta = 0.0
@@ -294,9 +343,9 @@ if __name__ == "__main__":
                     finalEnergyMin = 0.0
                     finalEnergyMax = 0.0
                 else:
-                    finalProbabilitiesTrans, finalProbabiltiesNorm, maxTheta, minTheta, finalEnergyMin, finalEnergyMax = calculateAngleEnergyProbabilities(fileName, material, numberOfBins)
+                    finalProbabilitiesTrans, finalProbabiltiesNorm, maxTheta, minTheta, finalEnergyMin, finalEnergyMax = calculateAngleEnergyProbabilities(fileName, numberOfBins)
             else:
-                finalProbabilitiesTrans, finalProbabiltiesNorm, maxTheta, minTheta, finalEnergyMin, finalEnergyMax = calculateAngleEnergyProbabilities(fileName, material, numberOfBins)
+                finalProbabilitiesTrans, finalProbabiltiesNorm, maxTheta, minTheta, finalEnergyMin, finalEnergyMax = calculateAngleEnergyProbabilities(fileName, numberOfBins)
             
             # Store in dictionary for NPZ saving   
             resultsTableTrans[material][energy] = finalProbabilitiesTrans
@@ -311,3 +360,7 @@ if __name__ == "__main__":
     # Save to CUDA-optimized NPZ
     saveToNPZ(resultsTableTrans, resultsTableNorm, materials, energies, thetaMaxArray, thetaMinArray, 
               energyMinArray, energyMaxArray, savePathTrans, savePathNorm)
+    
+    # End time of the simulation
+    endTime = time.time()
+    print(f"Simulation completed in {endTime - startTime:.2f} seconds for method {methodTable} with {numberOfProtons} protons.")

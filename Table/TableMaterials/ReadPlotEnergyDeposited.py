@@ -45,7 +45,7 @@ if __name__ == "__main__":
     np.save('energyDepositedTOPAS.npy', energyGrid)
 
     # Compute average energy: EnergyFluence / Fluence (with threshold)
-    fluenceThreshold = 1e0
+    fluenceThreshold = 1e0  # Threshold for fluence to avoid division by zero
     meanEnergyGrid = np.zeros_like(energyGrid)
     mask = fluenceGrid > fluenceThreshold
     meanEnergyGrid[mask] = energyFluenceGrid[mask] / fluenceGrid[mask]
