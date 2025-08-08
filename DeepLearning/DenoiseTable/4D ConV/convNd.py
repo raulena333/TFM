@@ -78,7 +78,6 @@ class convNd(nn.Module):
         self.use_bias = use_bias
         if use_bias:
             self.bias = nn.Parameter(torch.zeros(out_channels))
-            # self.bias = nn.Parameter(torch.empty(self.out_channels)) 
         else:
             self.register_parameter('bias', None)
         self.bias_initializer = bias_initializer
