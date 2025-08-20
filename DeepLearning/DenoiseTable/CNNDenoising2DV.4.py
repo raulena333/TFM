@@ -10,6 +10,8 @@ from sklearn.model_selection import train_test_split
 import copy
 import argparse
 import os
+import sys
+from tqdm import tqdm  
 
 # --- 1. Define Dummy Data Dimensions ---
 num_materials = 50
@@ -110,18 +112,35 @@ def generate_synthetic_noisy_data(M_dim, E_dim, A_Dim, e_dim, x_angles_vals, y_f
     return noisy_h1, noisy_h2_input_to_model, clean_target_data, mask_volume_4d, M_dim, E_dim, A_Dim, e_dim, ct_values, initial_energies
 
 # --- 2a. Data Loading Function ---
-def load_data_from_npz(npz_path="./DenoisingDataTransSheet50.npz"):
-    print(f"Loading data from: {npz_path}")
+def load_data_from_npz(method, npz_path):
+    
+    print(f"[INFO] Loading data from: {npz_path}")
+    
+    method = method.lower()
+    if method not in {"transformation", "normalization"}:
+        raise ValueError(
+            f"Unknown method '{method}'.  Expected 'transformation' "
+            f"or 'normalization'."
+        )
+        
     try:
-        loaded_data = np.load(npz_path)
-        histograms_np = loaded_data['histograms'].astype(np.float32)
-        ct_values = loaded_data['HU'].astype(np.float32)
-        initial_energies = loaded_data['energies'].astype(np.float32)
-    except FileNotFoundError:
-        raise FileNotFoundError(f"The file {npz_path} was not found.")
-    except KeyError:
-        raise KeyError("The .npz file must contain 'histograms', 'HU', 'energies'.")
+        npz = np.load(npz_path, allow_pickle=False)
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(f"The file {npz_path} was not found.") from exc
+    except Exception as exc:
+        raise RuntimeError(f"Unable to load {npz_path}") from exc
+    
+    try:
+        histograms_np = npz['histograms'].astype(np.float32)
+    except KeyError as exc:
+        raise KeyError("'histograms' key is missing from the .npz file") from exc
 
+    try:
+        ct_values = npz['HU'].astype(np.float32)
+        initial_energies = npz['energies'].astype(np.float32)
+    except KeyError as exc:
+        raise KeyError("The .npz file must contain 'HU' and 'energies' keys") from exc
+    
     if histograms_np.ndim != 5 or histograms_np.shape[0] != 2:
         raise ValueError("Expected 'histograms' data to be 5D with shape [2, M, E, a, e].")
 
@@ -130,11 +149,56 @@ def load_data_from_npz(npz_path="./DenoisingDataTransSheet50.npz"):
 
     M_dim, E_dim, A_Dim, e_dim = noisy_h1.shape
     clean_target_data = noisy_h2.clone()
-    mask_volume_4d = (noisy_h1 + noisy_h2 > 1e-12).bool()
+    mask_volume_4d = (noisy_h1 > 1e-12).bool()
+    
+    base_keys = {"histograms", "HU", "energies"}
+    extra = {k: npz[k] for k in npz.files if k not in base_keys}
+    
+    required_common = {"rho"}
+    missing = required_common - set(extra.keys())
+    if missing:
+        raise KeyError(
+            f"For method '{method}' the following required key(s) are "
+            f"missing in the .npz file: {', '.join(sorted(missing))}"
+        )
 
-    return (noisy_h1, noisy_h2, clean_target_data, mask_volume_4d,
-            M_dim, E_dim, A_Dim, e_dim, ct_values, initial_energies)
+    if method == "normalization":
+        # 5 additional keys that are specific to the normalisation step
+        required_norm = {"thetaMax", "thetaMin", "energyMin", "energyMax"}
+        missing = required_norm - set(extra.keys())
+        if missing:
+            raise KeyError(
+                f"For method 'normalization' the following required key(s) are "
+                f"missing in the .npz file: {', '.join(sorted(missing))}"
+            )
+    base = (
+        noisy_h1,
+        noisy_h2,
+        clean_target_data,
+        mask_volume_4d,
+        M_dim,
+        E_dim,
+        A_Dim,
+        e_dim,
+        ct_values,
+        initial_energies,
+        extra,        
+    )
+    
+    if method == "transformation":
+        special = (extra["rho"],)                    
+    elif method == "normalization":
+        special = (
+            extra["rho"],
+            extra["thetaMax"],
+            extra["thetaMin"],
+            extra["energyMin"],
+            extra["energyMax"],
+        )
+    else:
+        special = None 
 
+    return base, special
 
 # --- 3. Data Transformation Function ---
 def create_cnn_inputs_pytorch(noisy_input_data, noisy_target_data, clean_mask_data, ct_vals, initial_e_vals, num_a, num_e, augment_data=False):
@@ -154,7 +218,7 @@ def create_cnn_inputs_pytorch(noisy_input_data, noisy_target_data, clean_mask_da
     x_coord_grid = x_coords.view(num_a, 1).expand(num_a, num_e)
     y_coord_grid = y_coords.view(1, num_e).expand(num_a, num_e)
 
-    for m_idx in range(noisy_input_data.shape[0]):
+    for m_idx in tqdm(range(noisy_input_data.shape[0]), desc="Creating CNN inputs"):
         for e_idx in range(noisy_input_data.shape[1]):
             hist_channel = noisy_input_data[m_idx, e_idx, :, :]
             energy_channel = torch.full((num_a, num_e), scaled_initial_e_vals[e_idx], dtype=torch.float32)
@@ -525,18 +589,37 @@ def plot_denoising_results(denoising_model, X_full_data, clean_full_data, m_indi
                 break
 
 # --- 9. Function to Save Denoised Histograms ---
-def save_denoised_histograms(denoising_model, X_full_data, output_filename, original_shape, batch_size=30):
+def save_denoised_histograms(denoising_model, X_full_data, output_filename, original_shape,
+        hu_values, initial_energies, 
+        method, special=None, extra=None, batch_size=30):
     """
-    Denoises the entire dataset and saves the output to an NPZ file.
+    Denoises the full dataset and writes the denoised histograms **together
+    with the method‑specific variables** to an NPZ file.
 
     Args:
-        denoising_model (DenoisingModel): The trained denoising model.
-        X_full_data (torch.Tensor): The full input data for the model.
-        output_filename (str): The name of the NPZ file to save.
-        original_shape (tuple): The original 4D shape (M, E, A, e) to reshape the output to.
-        batch_size (int): Batch size for denoising.
+        denoising_model (DenoisingModel):  The trained denoising model.
+        X_full_data     (torch.Tensor):      All input data for the model.
+        output_filename (str):               Name of the NPZ file to write.
+        original_shape  (tuple):             The 4‑D shape (M, E, A, e)
+                                            that the output must be reshaped to.
+        hu_values       (list):              List that contains the
+                                            histogram unit values   
+        initial_energies(list):             List that contains the
+                                            initial energies
+        method          (str):               Either 'transformation' or
+                                            'normalization'.
+        special         (tuple or list):     Tuple that contains only the
+                                            method‑specific arrays
+                                            (e.g. (rho,) or
+                                            (rho, thetaMax, thetaMin,
+                                             energyMin, energyMax)).
+        extra           (dict, optional):   Dictionary that contains the
+                                            same method‑specific arrays
+                                            (used only if *special* is
+                                            None).
+        batch_size      (int):               Batch size for the DataLoader.
     """
-    print(f"\nDenoising full dataset and saving to {output_filename}...")
+    print(f"\nDenoising full dataset and saving to {output_filename}…")
     
     # Create a DataLoader for the full dataset
     full_dataset = TensorDataset(X_full_data)
@@ -556,10 +639,51 @@ def save_denoised_histograms(denoising_model, X_full_data, output_filename, orig
     # Reshape the data to the original 4D structure
     denoised_4d = all_denoised.reshape(original_shape)
 
-    # Save the data to an NPZ file with the key 'histograms'
-    np.savez(output_filename, histograms=denoised_4d)
-    
-    print(f"Denoised 4D data saved successfully to {output_filename}")
+    # Add method‑specific keys
+    payload = {"probTable": denoised_4d}
+    payload = {"HU" : hu_values, "energies" : initial_energies}
+
+    if method == "transformation":
+        if special is None:
+            if extra is None or "rho" not in extra:
+                raise ValueError(
+                    "For the 'transformation' method you must supply "
+                    "'special' (or 'extra' with a 'rho' key).")
+            rho = extra["rho"]
+        else:
+            rho = special[0]
+        payload["rho"] = rho
+
+    elif method == "normalization":
+        # Expect five arrays in the special tuple
+        if special is None:
+            if extra is None:
+                raise ValueError(
+                    "For the 'normalization' method you must supply "
+                    "'special' (or 'extra' with the five keys).")
+            keys = ["rho", "thetaMax", "thetaMin", "energyMin", "energyMax"]
+            payload.update({k: extra[k] for k in keys})
+        else:
+            if len(special) != 5:
+                raise ValueError(
+                    f"Special tuple for 'normalization' must contain "
+                    f"5 arrays, got {len(special)}.")
+            payload.update({
+                "rho":        special[0],
+                "thetaMax":   special[1],
+                "thetaMin":   special[2],
+                "energyMin":  special[3],
+                "energyMax":  special[4]
+            })
+    else:
+        raise ValueError(f"Unknown method '{method}'. Expected 'transformation' "
+                         f"or 'normalization'.")
+
+    # ---- 6. Persist everything into a single NPZ file ---------
+    np.savez(output_filename, **payload)
+
+    print(f"Denoised 4‑D data (and method‑specific variables) written to {output_filename}")
+
     
 # --- Main Execution Block ---
 if __name__ == "__main__":
@@ -568,11 +692,19 @@ if __name__ == "__main__":
     data_source_group = parser.add_mutually_exclusive_group(required=True)
     data_source_group.add_argument("--dummy", action="store_true",
                                    help="Use dummy synthetic data for training.")
-    data_source_group.add_argument("--real", dest="npz_path", metavar="NPZ_PATH",
-                                   nargs='?', const="./DenoisingDataTransSheet50.npz",
-                                   help="Use real data from an NPZ file. Defaults to './DenoisingDataTransSheet50.npz'.")
-    args = parser.parse_args()
+    
+    data_source_group.add_argument('--transformation', action='store_true', help="Use transformation method")
+    data_source_group.add_argument('--normalization', action='store_true', help="Use normalization method")
+    # Optional: allow the user to supply a custom NPZ file path
+    parser.add_argument(
+        "--npz",
+        type=str,
+        default=None,
+        help="Optional path to a custom NPZ file. Ignored if --dummy is chosen."
+    )
 
+    args = parser.parse_args()
+    
     # 2. Data Loading and Initial Setup
     noisy1_histograms = None
     noisy2_target = None
@@ -580,24 +712,55 @@ if __name__ == "__main__":
     mask_volume_4d = None
     ct_values = None
     initial_energies = None
+    
+    rho, thetaMax, thetaMin, energyMin, energyMax = None, None, None, None, None
+    method, special, extra = None, None, None
 
     if args.dummy:
-        print("Using dummy synthetic data.")
+        print("[INFO] Using dummy synthetic data.")
         (noisy1_histograms, noisy2_target, clean_target_data_proxy, mask_volume_4d,
          num_materials, num_initial_energies, num_angles, num_final_energies,
          ct_values, initial_energies) = generate_synthetic_noisy_data(
              num_materials, num_initial_energies, num_angles, num_final_energies,
              x_angles_range, y_final_energies_range,
              poisson_scaling_factor=100000
-         )
-    elif args.npz_path:
-        print(f"Using real data from NPZ file: {args.npz_path}")
-        (noisy1_histograms, noisy2_target, clean_target_data_proxy, mask_volume_4d,
-         num_materials, num_initial_energies, num_angles, num_final_energies,
-         ct_values, initial_energies) = load_data_from_npz(args.npz_path)
-    
+        )
+    else:
+        method = 'transformation' if args.transformation else 'normalization'
+        if args.npz:
+            npz_path = args.npz
+        else:
+            npz_path = (
+                './DenoisingDataTransSheet.npz'
+                if method == 'transformation'
+                else './DenoisingDataNormSheet.npz'
+            )
+        if not os.path.isfile(npz_path):
+            print(f"[ERROR] NPZ file '{npz_path}' does not exist.", file=sys.stderr)
+            sys.exit(1)
+            
+        print(f"[INFO] Using real data from NPZ file: {npz_path}")
+        base, special = load_data_from_npz(method=method, npz_path=npz_path)
+        
+        (
+            noisy1_histograms, noisy2_target, clean_target_data_proxy, mask_volume_4d, 
+            num_materials, num_initial_energies, num_angles, num_final_energies, 
+            ct_values, initial_energies,
+            extra  # dictionary with all method‑specific keys (rho, thetaMax, …)
+        ) = base
+        
+        if method == 'transformation':
+            rho = special[0]
+            print('[INFO] Loaded 1 method-specific key: rho for transformation method')
+        else:
+            (
+                rho, thetaMax, thetaMin, energyMin, energyMax
+            ) = special
+            print('[INFO] Loaded 4 method-specific keys: rho, thetaMax, thetaMin, energyMin, energyMax for normalization method')
+     
     # Store the original 4D shape for reshaping the final output
     original_4d_shape = noisy1_histograms.shape
+    print(f"[INFO] Original 4D shape: {original_4d_shape}")
 
     # Define indices to plot for visualization
     num_materials_to_plot = min(num_materials, 3)
@@ -622,7 +785,7 @@ if __name__ == "__main__":
     )
     y_data_torch_clean_reshaped = clean_target_data_proxy.reshape(-1, 1, num_angles, num_final_energies)
 
-    print(f"Input data shape: {X_data_torch.shape}, Target shape: {y_data_torch_noisy_target.shape}")
+    print(f"[INFO] Input data shape: {X_data_torch.shape}, Target shape: {y_data_torch_noisy_target.shape}")
     print("-" * 30)
 
     # 4. DataLoader Preparation
@@ -630,6 +793,8 @@ if __name__ == "__main__":
     train_loader, val_loader, _, _ = prepare_dataloaders(
         X_data_torch, y_data_torch_noisy_target, mask_data_torch, y_data_torch_clean_reshaped, batch_size
     )
+    print(f"[INFO] Number of batches in train_loader: {len(train_loader)}")
+    print(f"[INFO] Number of batches in val_loader: {len(val_loader)}")
 
     # 5. Model Initialization and Training
     model_params = {
@@ -679,12 +844,18 @@ if __name__ == "__main__":
     )
     print("Denoising results plotted and saved.")
 
-    # 8. Save the full denoised model to an NPZ file
-    save_denoised_histograms(
-        denoising_model=denoising_model,
-        X_full_data=X_data_torch,
-        output_filename="denoised_histograms.npz",
-        original_shape=original_4d_shape
-    )
+    if method is not None:
+        save_denoised_histograms(
+            denoising_model=denoising_model,
+            X_full_data=X_data_torch,
+            output_filename="denoised_histograms.npz",
+            original_shape=original_4d_shape,
+            hu_values=ct_values,
+            initial_energies=initial_energies,
+            method=method,
+            special=special,
+            extra=extra,
+            batch_size=batch_size
+        )
 
     print("\nRefactored U-Net based CNN for Noise2Noise denoising is complete.")

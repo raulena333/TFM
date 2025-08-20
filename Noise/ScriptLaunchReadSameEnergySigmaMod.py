@@ -107,13 +107,7 @@ def readInputFileSigma(fileName):
     newData = np.loadtxt(fileName)  
     print(f'{fileName} loaded successfully.')
     finalDirectionCosineX, finalDirectionCosineY, finalEnergy, isSign = newData[:, [3,4,5,8]].T
-    
-    mask = finalEnergy > 90.
-    finalDirectionCosineX = finalDirectionCosineX[mask]
-    finalDirectionCosineY = finalDirectionCosineY[mask]
-    finalEnergy = finalEnergy[mask]
-    isSign = isSign[mask]
-    
+        
     finalAngles = []
     # Loop over each particle's direction cosines
     for directionX, directionY, sign in zip(finalDirectionCosineX, finalDirectionCosineY, isSign):
@@ -128,37 +122,14 @@ def readInputFileSigma(fileName):
     return finalEnergy, finalAngles
 
 
-def binNoise(energies, numberOfBinsEnergies, angles, numberOfBinsAngles, nProtons, nRun):
+def binNoise(energies, fixedEnergyEdges, angles, fixedAngleEdges):
     # Compute histogram counts for energies
-    energyCounts, energyEdges = np.histogram(energies, bins=numberOfBinsEnergies)
+    energyCounts, _ = np.histogram(energies, bins=fixedEnergyEdges)
 
     # Compute histogram counts for angles
-    angleCounts, angleEdges = np.histogram(angles, bins=numberOfBinsAngles)
-    
-    filePath = "./Plots_{nProtons}/".format(nProtons=nProtons)
-    if not os.path.exists(filePath):
-        os.makedirs(filePath, exist_ok=True)
-        
-    # Create 2Dhistogram plot
-    fig1, axs1 = plt.subplots(1, 2, figsize=(10, 6))
-
-    sns.histplot(energies, bins=numberOfBinsEnergies, edgecolor="black", color='orange', kde=False, ax=axs1[0])
-    axs1[0].set_xlabel(r'$E[E_f]$ (MeV)')
-    axs1[0].set_title('Final Energy Distribution')
-    axs1[0].set_yscale('log')
-            
-    sns.histplot(angles, bins=numberOfBinsAngles, edgecolor="black", color='red', kde=False, ax=axs1[1])
-    axs1[1].set_xlabel(r'$E[\theta]$ (deg)')
-    axs1[1].set_title('Angle Distribution')
-    axs1[1].set_yscale('log')
-
-    plt.tight_layout()
-    # plt.show()
-    savefileName = f'{filePath}HistogramStdMeanEnergyRun_{nRun}.pdf'
-    plt.savefig(savefileName)
-    plt.close(fig1) 
+    angleCounts, _ = np.histogram(angles, bins=fixedAngleEdges)
      
-    return energyCounts, energyEdges, angleCounts, angleEdges
+    return energyCounts, fixedEnergyEdges, angleCounts, fixedAngleEdges
 
 def calculateMeanAndStd(energyCounts, angleCounts):
     # Convert lists to NumPy arrays for easier calculations
@@ -191,7 +162,7 @@ def plot2D(meanEnergyBin, stdEnergyBin, meanAngleBin, stdAngleBin, energyEdges, 
     # axs1[1].bar(energyEdges[:-1], stdEnergyBin, width=np.diff(energyEdges), edgecolor="black", color='red', align='edge')
     # axs1[1].set_xlabel(r'Final Energy (MeV)')
     # axs1[1].set_ylabel('Std Dev Counts')
-    # axs1[1].set_yscale('log')
+    # #axs1[1].set_yscale('log')
     # axs1[1].set_title('Std Dev Energy per Bin')
 
     axs1[1].bar(energyEdges[:-1], cvEnergyBin, width=np.diff(energyEdges), edgecolor="black", color='blue', align='edge')
@@ -215,7 +186,7 @@ def plot2D(meanEnergyBin, stdEnergyBin, meanAngleBin, stdAngleBin, energyEdges, 
     # axs2[1].bar(angleEdges[:-1], stdAngleBin, width=np.diff(angleEdges), edgecolor="black", color='red', align='edge')
     # axs2[1].set_xlabel(r'$\theta$ (deg)')
     # axs2[1].set_ylabel('Std Dev Counts')
-    # axs2[1].set_yscale('log')
+    # #[1].set_yscale('log')
     # axs2[1].set_title('Std Dev Angle per Bin')
 
     axs2[1].bar(angleEdges[:-1], cvAngleBin, width=np.diff(angleEdges), edgecolor="black", color='blue', align='edge')
@@ -278,13 +249,12 @@ if __name__ == "__main__":
     start_time = time.time()  # Record the start time
     
     # Variables
-    numberOfProtonsRun = [1000, 10000, 100000, 1000000]
+    numberOfProtonsRun = [1_000_000, 10_000]
     numberOfRuns = 20
     energy = 100
     
-    numberOfBinsAngles = 30
-    numberOfBinsEnergies = 30
-
+    numberOfBins = 100
+        
     dataPath = '~/G4Data/'
     voxelPhaseFile = "./MyVoxelPhaseSpace.txt"
     fileName = "OutputVoxel.phsp"
@@ -293,9 +263,36 @@ if __name__ == "__main__":
     timeSimulation = []
     energyEdges = []
     angleEdges = []
-            
+    
     # Call the function to change input parameters
     modifyBeamEnergy(voxelPhaseFile, energy)
+    
+    # --- Step 1: Preliminary high-statistics pilot run to determine bin edges ---
+    print("--- Phase 1: Determining optimal bin edges from a pilot run ---")
+    pilotProtons = 1_000_000
+    
+    modifyInputParameters(voxelPhaseFile, pilotProtons)
+    modifySeedRandomness(voxelPhaseFile, np.random.randint(0, 2**31 - 1))
+    runTopas(voxelPhaseFile, dataPath)
+    
+    finalEnergyPilot, finalAnglesPilot = readInputFileSigma(fileName)
+    
+    # Find the true min and max values from the pilot run
+    min_energy = min(finalEnergyPilot)
+    max_energy = max(finalEnergyPilot)
+    min_angle = min(finalAnglesPilot)
+    max_angle = max(finalAnglesPilot)
+
+    # Define the fixed bin edges using the true min/max values and the fixed bin count
+    fixedEnergyEdges = np.linspace(min_energy, max_energy, numberOfBins + 1)
+    fixedAngleEdges = np.linspace(min_angle, max_angle, numberOfBins + 1)
+    
+    print(f"Optimal energy range determined: {min_energy:.2f} to {max_energy:.2f} MeV.")
+    print(f"Optimal angle range determined: {min_angle:.2f} to {max_angle:.2f} degrees.")
+    print(f"Using {numberOfBins} bins for all subsequent runs.")
+    
+    # --- Step 2: Main statistical analysis for all specified proton counts ---
+    print("\n--- Phase 2: Running simulations with fixed bin edges ---")
     
     for j, nProtons in enumerate(numberOfProtonsRun):
         modifyInputParameters(voxelPhaseFile, nProtons)
@@ -310,7 +307,7 @@ if __name__ == "__main__":
             runTopas(voxelPhaseFile, dataPath)
 
             finalEnergy, finalAngles = readInputFileSigma(fileName)
-            energyBin, energyEdges, angleBin, angleEdges = binNoise(finalEnergy, numberOfBinsEnergies, finalAngles, numberOfBinsAngles, nProtons, i)
+            energyBin, energyEdges, angleBin, angleEdges = binNoise(finalEnergy, fixedEnergyEdges, finalAngles, fixedAngleEdges)
             
             totalEnergyBin.append(energyBin)
             totalAngleBin.append(angleBin)
@@ -318,8 +315,12 @@ if __name__ == "__main__":
         # Calculate mean and std for bins
         meanEnergyBin, stdEnergyBin, meanAngleBin, stdAngleBin = calculateMeanAndStd(totalEnergyBin, totalAngleBin)
 
+        # Calculate total std as sqrt of summed variances
+        total_variance = np.sum(stdEnergyBin**2)
+        total_std = np.sqrt(total_variance)
         print("Sum of meanEnergyBin (average total counts):", np.sum(meanEnergyBin))
         print("Sum of stdEnergyBin (sum of fluctuations):", np.sum(stdEnergyBin))
+        print("Total std (sqrt of summed variances):", total_std)
 
         timeEnd = time.time()
         timeSimulation.append(timeEnd - timeStart)

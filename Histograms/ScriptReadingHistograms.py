@@ -9,11 +9,11 @@ import matplotlib.colors as colors
 
 # Matplotlib params
 params = {
-    'xtick.labelsize': 14,    
-    'ytick.labelsize': 14,      
-    'axes.titlesize': 14,
-    'axes.labelsize': 14,
-    'legend.fontsize': 14
+    'xtick.labelsize': 17,    
+    'ytick.labelsize': 17,      
+    'axes.titlesize': 17,
+    'axes.labelsize': 17,
+    'legend.fontsize': 17
 }
 pylab.rcParams.update(params)  # Apply changes
 
@@ -47,46 +47,27 @@ def calculateEnergyLossDose(energyValues, initialEnergy, mass):
 
 
 # Energy values
-energies = [200, 175, 150, 125, 100, 75, 50, 25, 15, 10, 9]
+energies = [100, 12]
 
 # Define argument parser
 parser = argparse.ArgumentParser(description="Analyze and visualize simulation data with different threshold options.")
-parser.add_argument('--mode', choices=['no', 'uniform', 'predefined'], default='predefined',
-                    help="Mode for running the script:\n"
-                         "'no' - No filtering applied.\n"
-                         "'uniform' - Single threshold for all energies.\n"
-                         "'predefined' - Different thresholds per energy (default).")
-
-parser.add_argument("--variableAngle", choices=["none", "root", "dot"], default="none",
-                    help="Select the variable change to apply for the angles.\n"
-                    "'none' - No variable change applied.\n"
-                    "'root' - Apply square root energy transformation.\n"
-                    "'dot' - Apply dot energy product transformation.")
-
-parser.add_argument("--variableEnergy", choices=["none", "lnroot", "root"], default="none",
-                    help="Select the variable change to apply for the energies.\n"
-                    "'none' - No variable change applied.\n"
-                    "'lnroot' - Apply natural logarithm and square root energy transformation.\n"
-                    "'root' - Apply square root energy transformation.")
+parser.add_argument('--uniform', action='store_true',
+                    help="Use uniform thresholds for filtering (if not set, uses predefined thresholds by default).")
 
 args = parser.parse_args()
 
 # Path for saving plots
-if(args.mode == "no"):
-    savePath = "./Plots/NoThreshold/"
-elif(args.mode == "uniform"):
+if args.uniform:
     savePath = "./Plots/UniformThreshold/"
 else:
-    savePath = "./Plots/PredefinedThreshold/"
+    savePath = "./Plots/NoThreshold/"
 
 # Create directory if it doesn't exist
 if not os.path.exists(savePath):
     os.makedirs(savePath)
     
 # Storage for results
-dataForEnergies = []
 percentajeDiscarded = []
-dataForAngles = []
 
 # Number of bins for histograms
 numberOfBinsAngles = 100
@@ -106,6 +87,8 @@ doseSimulation = []
 energyCutOff = []
 doseCutOff = []
 doseCalculatedSim = []
+relativeDifferenceDose = []
+relativeDifferenceEnergy = []
 
 # Load data from files
 for i, energy in enumerate(energies):   
@@ -120,42 +103,51 @@ for i, energy in enumerate(energies):
 
         # Extract relevant columns
         finalDirectionCosineX, finalDirectionCosineY, finalEnergy, isSign, initialEnergy = newData[:, [3,4,5,8,10]].T
-        logFinalEnergy = np.log((initialEnergy - finalEnergy) / initialEnergy)
+        initialData = len(initialEnergy)
+        
+        if energy == 200:
+            mask = finalEnergy > 195
+        if energy == 175:
+            mask = finalEnergy > 170
+        if energy == 150:
+            mask = finalEnergy > 145
+        if energy == 125:
+            mask = finalEnergy > 120
+        if energy == 100:
+            mask = finalEnergy > 95
+        if energy == 75:
+            mask = finalEnergy > 70
+        if energy == 50:
+            mask = finalEnergy > 45
+        if energy == 25:
+            mask = finalEnergy > 20
+        else:
+            mask = np.ones_like(finalEnergy, dtype=bool)
+        finalDirectionCosineX = finalDirectionCosineX[mask]
+        finalDirectionCosineY = finalDirectionCosineY[mask]
+        finalEnergy = finalEnergy[mask]
+        initialEnergy = initialEnergy[mask]
+        isSign = isSign[mask]
+        
+        logFinalEnergy = np.log((initialEnergy - finalEnergy) / initialEnergy) / np.sqrt(initialEnergy) 
         energyCa, doseCalculated = calculateEnergyLossDose(finalEnergy, energy, mass)
         
         # Extract values of dose and energy
         energySim, doseSim = returnDoseEnergyValue(energyFile, doseFile)
+        discardedData += initialData - len(logFinalEnergy)
         
-        if args.variableEnergy == "lnroot":
-            logFinalEnergy *= 1 / np.log(np.sqrt(energy))
-        elif args.variableEnergy == "root":
-            logFinalEnergy *= 1 / np.sqrt(energy)
-
-        if args.mode == "predefined":     
-            # Define thresholds for energies and angles
-            thresholdsAngles = [1.5, 2.2, 3., 4., 5.5]
-            thresholdsMaxEnergies = [-5., -5, -4.7, -4.4, -4.]
-            thresholdsMinEnergies = [-7, -6.4, -6, -5.4, -4.8] 
-                                     
-            # Apply filtering on energy
-            mask = (logFinalEnergy < thresholdsMaxEnergies[i]) & (logFinalEnergy > thresholdsMinEnergies[i])
-            filteredFinalDirectionCosineX = finalDirectionCosineX[mask]
-            filteredFinalDirectionCosineY = finalDirectionCosineY[mask]
-            filteredIsSign = isSign[mask]
-            logFinalEnergy = logFinalEnergy[mask]
-            finalEnergy = finalEnergy[mask]
-
-            discardedData += len(finalEnergy) - len(logFinalEnergy)
-        elif args.mode == "uniform":
+        if args.uniform:
             # Set up uniform thresholds if selected
             # threshold = [0, -0.6, 300] [9.999999999999999e-06, 9.999999999999999e-06, 3.99999960000004e-05, 2.99999970000003e-05, 3.99999960000004e-05, 2.00000040000008e-05, 2.0000010000005e-05, 8.000016000032e-05, 3.0000882025931565e-05, 0.00024002810729136382, 0.3848261497453506]
             # threshold = [0, -0.57, 300] [9.999999999999999e-06, 9.999999999999999e-06, 3.99999960000004e-05, 2.99999970000003e-05, 3.99999960000004e-05, 2.00000040000008e-05, 0.0004700002350001175, 8.000016000032e-05, 3.0000882025931565e-05, 0.00024002810729136382, 0.3848261497453506]
             # threshold = [0, -0.57, 200] # [7e-05, 7.999999999999999e-05, 0.0001399999860000014, 0.0001399999860000014, 0.0001699999830000017, 0.00019000003800000758, 0.0007700003850001926, 0.00047000094000188, 0.0006000176405186312, 0.0019602295428794714, 0.3935531985500457]
             # threshold = [0, -0.57, 150] [0.00031, 0.00033, 0.0004199999580000042, 0.0004499999550000045, 0.0005599999440000056, 0.00075000015000003, 0.001660000830000415, 0.00239000478000956, 0.003020088790610444, 0.007570886550815101, 0.4065316251018878]
             # threshold = [0, -0.57, 100] [0.0014399999999999999, 0.00156, 0.0018399998160000186, 0.0021999997800000223, 0.002819999718000028, 0.0035800007160001427, 0.00536000268000134, 0.00978001956003912, 0.016050471883873384, 0.03782442924066408, 0.4498814049121254]
-            threshold = [0, -0.57, 70] # [0.0038399999999999997, 0.00424, 0.0048699995130000485, 0.005649999435000057, 0.007179999282000071, 0.00951000190200038, 0.014140007070003534, 0.026280052560105124, 0.04847142505989676, 0.11785380068005963, 0.5577664872150264]
+            # threshold = [0, -0.57, 70] # [0.0038399999999999997, 0.00424, 0.0048699995130000485, 0.005649999435000057, 0.007179999282000071, 0.00951000190200038, 0.014140007070003534, 0.026280052560105124, 0.04847142505989676, 0.11785380068005963, 0.5577664872150264]
             # [0.009870974265159971, 0.011141241134262358, 0.01253157020574678, 0.014512105706538018, 0.017823177872614688, 0.02293526134895345, 0.03481215292258528, 0.07033017354580758, 0.1780700528429444, 0.42076627625166035]
-            # threshold = [0, -0.57, 50] # [0.00896080288793876, 0.009970994108112578, 0.011441307741474852, 0.013441805234442987, 0.01638268184501803, 0.021664696906289284, 0.031229906126223235, 0.06129769195078054, 0.11690996460963066, 0.2978392211883536, 0.4903234219652799]
+            threshold = [0, -0.6, 70] #  [0.005770332948211112, 0.006300396925006276, 0.007350538794493637, 0.0084407107078416, 0.010611123718001736, 0.013831915720327265, 0.02062416814438198, 0.03858494780878112, 0.07267490589140096, 0.18311610589112648, 0.6593214482150853]
+            # [0.014962238350857289, 0.016832832965788143, 0.019053629716460987, 0.02203485427839753, 0.026827197737152874, 0.03544256084356296, 0.053138274876061556, 0.10872923247633355, 0.28250712360431307, 0.914612187572127]
+            # threshold = [0, -0.57, 50] # [0.00896080288793876, 0.009970994108112578, 0.011441306597213402, 0.01344180389008205, 0.01638268020648178, 0.021664696906289284, 0.03167990313772085, 0.0613276919995029, 0.11691996488996978, 0.2978392211883536, 0.8708513593202599]
             # [0.023865694354673027, 0.026927248815381104, 0.03050930533812813, 0.03534248650048062, 0.04322868343698147, 0.057182685623102164, 0.08529278032945513, 0.17959386161064247, 0.4737597831209324, 1.4771631001820411]
             uniformMaxEnergy = threshold[0]
             uniformMinEnergy = threshold[1]
@@ -166,7 +158,6 @@ for i, energy in enumerate(energies):
             filteredFinalDirectionCosineY = finalDirectionCosineY[mask]
             filteredIsSign = isSign[mask]
             logFinalEnergy = logFinalEnergy[mask]
-            finalEnergy = finalEnergy[mask]
 
             discardedData += len(finalEnergy) - len(logFinalEnergy)
         else:
@@ -187,20 +178,10 @@ for i, energy in enumerate(energies):
             if sign == 0:
                 directionZ *= -1   
             angle = np.degrees(np.arccos(directionZ))
+            angle *= np.sqrt(energy)
             
-            if args.variableAngle == "root":
-                angle *= np.sqrt(energy)
-            elif args.variableAngle == "dot":
-                angle *= energy
-            
-            if args.mode == "uniform":
+            if args.uniform:
                 if angle > uniformAngleThreshold:
-                    indexToDelete.append(j)
-                    discardedData += 1
-                else:
-                    finalAngles.append(angle)
-            elif args.mode == "predefined":
-                if angle > thresholdsAngles[i]:
                     indexToDelete.append(j)
                     discardedData += 1
                 else:
@@ -214,79 +195,53 @@ for i, energy in enumerate(energies):
             finalEnergy = np.delete(finalEnergy, indexToDelete)
         
         energyCut, doseCut = calculateEnergyLossDose(finalEnergy, energy, mass)
-        
-        # Save results
-        dataForEnergies.append(logFinalEnergy)
-        dataForAngles.append(finalAngles)
         percentajeDiscarded.append((discardedData / len(finalEnergy)) * 100)
-        
+
         # Save results for energy and dose
         energySimulation.append(energySim)
-        doseSimulation.append(doseSim)
+        doseSimulation.append(doseSim)  
         energyCutOff.append(energyCut)
         doseCutOff.append(doseCut)
         doseCalculatedSim.append(doseCalculated)
+        
+        relativeDifferenceDose.append((doseCalculated - doseCut) / doseCut * 100)
+        relativeDifferenceEnergy.append((energyCa - energyCut) / energyCut * 100)
         
         # Plot histograms
         fig, axs = plt.subplots(1, 2, figsize=(10, 6))
 
         sns.histplot(logFinalEnergy, bins=numberOfBinsEnergies, edgecolor="black", color='orange', kde=False, ax=axs[0])
-        # sns.histplot(finalEnergy, bins=numberOfBinsEnergies, edgecolor="black", color='orange', kde=False, ax=axs[0])
-        if args.variableEnergy == "lnroot":
-            axs[0].set_xlabel(r'$\frac{ln((E_i-E_f)/E_i)}{ln\sqrt{E_i}}$ (ln(MeV)$^{-1/2}$)')  
-        elif args.variableEnergy == "root":
-            axs[0].set_xlabel(r'$\frac{ln((E_i-E_f)/E_i)}{\sqrt{E_i}}$ (MeV$^{-1/2}$)')
-        else:
-            axs[0].set_xlabel(r'$ln((E_i-E_f)/E_i)$ (u.a.)')
-            # axs[0].set_xlabel(r'Final Energy (MeV)')
-        axs[0].set_title('Final Energy distribution')
+        axs[0].set_xlabel(r'$\frac{ln((E_i-E_f)/E_i)}{\sqrt{E_i}}$ (MeV$^{-1/2}$)')
+        #axs[0].set_title('Final Energy distribution')
         axs[0].set_yscale('log')
-        # normalizeNewVariable = normalizeVariable(logFinalEnergy, 0, -0.47)
-        # sns.histplot(normalizeNewVariable, bins=numberOfBinsEnergies, edgecolor="black", color='orange', kde=False, ax=axs[0])
-        # axs[0].set_xlabel(r'\frac{2\Bigl(x - x_{\text{min}}(E_i)\Bigr)}{x_{\text{max}}(E_i) - x_{\text{min}}(E_i)} - 1 (u.a.)')
-        # axs[0].set_yscale('log')
          
         sns.histplot(finalAngles, bins=numberOfBinsAngles, edgecolor="black", color='red', kde=False, ax=axs[1])
-        if args.variableAngle == "root":
-            axs[1].set_xlabel(r'Angle$\sqrt{E_i}$ (deg$\cdot$MeV$^{1/2}$)')
-        elif args.variableAngle == "dot":
-            axs[1].set_xlabel(r'Angle$\cdot$Energy (deg$\cdot$MeV)')
-        else:
-            axs[1].set_xlabel('Angle (deg)')
-        axs[1].set_title('Final Angles distribution')
+        axs[1].set_xlabel(r'Angle$\sqrt{E_i}$ (deg$\cdot$MeV$^{1/2}$)')
+        #axs[1].set_title('Final Angles distribution')
         axs[1].set_yscale('log')
 
         plt.tight_layout()
-        plt.savefig(f'{savePath}OutputHistograms{energy}MeV_{args.variableAngle}_{args.variableEnergy}.pdf')
+        plt.savefig(f'{savePath}OutputHistograms{energy}MeV_{args.uniform}.pdf')
         plt.close(fig)
 
         # Compute 2D Histogram
-        if(args.mode == "uniform"):
+        if args.uniform:
             hist1, xedges1, yedges1 = np.histogram2d(finalAngles, logFinalEnergy, bins=jointNumberOfBins, range = ([0, uniformAngleThreshold], [uniformMinEnergy, uniformMaxEnergy]))
         else:
             hist1, xedges1, yedges1 = np.histogram2d(finalAngles, logFinalEnergy, bins=jointNumberOfBins)
         finalProbabilities = hist1 / np.sum(hist1)
+        
+        # Avoid log(0) by adding a small constant and then converting to dB
+        log_probabilities_dB = 10 * np.log10(finalProbabilities + 1e-12)
 
-        fig2, axs2 = plt.subplots(figsize=(8, 6))
-        # h1 = axs2.pcolormesh(xedges1, yedges1, finalProbabilities.T, cmap='Reds', shading='auto', norm=colors.LogNorm())
-        h1 = axs2.pcolormesh(xedges1, yedges1, finalProbabilities.T, cmap='Reds', shading='auto')
-        fig2.colorbar(h1, ax=axs2, label='Probability')
-        if args.variableAngle == "root":
-            axs2.set_xlabel(r'Angle$\sqrt{E_i}$ (deg$\cdot$MeV$^{1/2}$)')
-        elif args.variableAngle == "dot":
-            axs2.set_xlabel(r'Angle$\cdot$E_i$ (deg$\cdot$MeV)')
-        else:
-            axs2.set_xlabel('Angle (deg)')
-            
-        if args.variableEnergy == "lnroot":
-            axs2.set_ylabel(r'$ln((E_i-E_f)/E_i)/ln\sqrt{E_i}$ (ln(MeV)$^{-1}$)')
-        elif args.variableEnergy == "root":
-            axs2.set_ylabel(r'$ln((E_i-E_f)/E_i)\sqrt{E_i}$ (MeV$^{-1/2}$)')
-        else:
-            axs2.set_ylabel(r'$ln((E_i-E_f)/E_i)$ (u.a.)')
+        fig2, axs2 = plt.subplots(figsize=(10, 6.67))
+        h1 = axs2.pcolormesh(xedges1, yedges1, log_probabilities_dB.T, cmap='Reds', shading='auto')
+        fig2.colorbar(h1, ax=axs2, label='Probability (dB)')
+        axs2.set_xlabel(r'Angle$\sqrt{E_i}$ (deg$\cdot$MeV$^{1/2}$)')
+        axs2.set_ylabel(r'$\frac{ln((E_i-E_f)/E_i)}{\sqrt{E_i}}$ (MeV$^{-1/2}$)')
 
         plt.tight_layout()
-        plt.savefig(f'{savePath}Output2DHistograms{energy}MeV_{args.variableAngle}_{args.variableEnergy}.pdf')
+        plt.savefig(f'{savePath}Output2DHistograms{energy}MeV_{args.uniform}.pdf')
         plt.close(fig2) 
 
     except Exception as e:
@@ -308,7 +263,13 @@ plt.savefig(f'{savePath}DosePlot.pdf')
 # plt.show()
 plt.close()
 
-print("Percentage of discarded data per energy level:", percentajeDiscarded)
-print("Dose Simulation :", doseSimulation)
-print("Dose Simulation calculated :", doseCalculatedSim)
-print("Dose Cut Off :", doseCutOff) 
+# Save results to CSV
+df = pd.DataFrame({
+    'Energy (MeV)': energies,
+    'Dose Cut Off (Gy)': doseCutOff,
+    'Dose Simulation (Gy)': doseCalculatedSim,
+    'Percentage of Discarded Data (%)': percentajeDiscarded,
+    'relativeDifferenceDose (%)': relativeDifferenceDose,
+    'relativeDifferenceEnergy (%)': relativeDifferenceEnergy,
+})
+df.to_csv(f'{savePath}ResultsWater.csv', index=False)
