@@ -21,9 +21,9 @@ def returnEnergyValueArray(energyFile):
 if __name__ == "__main__":
 
     voxelShapeBins = (50, 50, 300)
-    energyFilePath = "./EnergyAtPatientByBinsTOPAS.csv"
-    fluencePath = "./FluenceAtPatientByBinsTOPAS.csv"
-    energyFluencePath = "./EnergyFluenceAtPatientByBinsTOPAS.csv"
+    energyFilePath = "./EnergyAtPatientByBinsTOPASHeteroGrid.csv"
+    fluencePath = "./FluenceAtPatientByBinsTOPASHeteroGrid.csv"
+    energyFluencePath = "./EnergyFluenceAtPatientByBinsTOPASHeteroGrid.csv"
     
     zFlip = lambda z: voxelShapeBins[2] - 1 - z
 

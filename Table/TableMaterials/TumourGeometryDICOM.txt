@@ -11,8 +11,7 @@ s:Ge/Patient/Type = "TsDicomPatient"
 s:Ge/Patient/Parent  = "World"
 sv:Ge/Patient/DicomModalityTags = 2 "CT" "DCM"
 s:Ge/Patient/DicomDirectory = "./dicom_ct"
-s:Ge/Patient/ImagingToMaterialConverter = "DefaultCT"
-
+s:Ge/Patient/ImagingtoMaterialConverter = "DefaultCT"
 
 d:Ge/Patient/TransX = 0. mm
 d:Ge/Patient/TransY = 0. mm

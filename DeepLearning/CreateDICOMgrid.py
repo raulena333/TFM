@@ -6,6 +6,18 @@ from pydicom.dataset import Dataset, FileDataset
 from pydicom.uid import ExplicitVRLittleEndian, generate_uid, CTImageStorage
 from datetime import datetime
 import matplotlib.pyplot as plt
+import matplotlib.pylab as pylab
+from matplotlib.ticker import FuncFormatter
+
+# Matplotlib params
+params = {
+    'xtick.labelsize': 16,    
+    'ytick.labelsize': 16,      
+    'axes.titlesize': 16,
+    'axes.labelsize': 16,
+    'legend.fontsize': 12
+}
+pylab.rcParams.update(params)  # Apply changes
 
 # 1. Read HU values from the interpolation file
 def read_hu_values_from_file(file_path="InterpolationData.txt"):
@@ -147,21 +159,20 @@ out_dir = "dicom_data"
 os.makedirs(out_dir, exist_ok=True)
 
 print("[INFO] Writing slices...")
-print("[INFO] Using HU value:", hu_list[25])
 for z in range(n_slices):
     # Find which group this slice belongs to
-    # group_index = None
-    # for g_idx, (start, end) in enumerate(slice_groups):
-    #     if start <= z < end:
-    #         group_index = g_idx
-    #         break
-    # if group_index < n:
-    #     hu_idx = group_index
-    # else:
-    #     hu_idx = (n - 1) - (group_index - n)
+    group_index = None
+    for g_idx, (start, end) in enumerate(slice_groups):
+        if start <= z < end:
+            group_index = g_idx
+            break
+    if group_index < n:
+        hu_idx = group_index
+    else:
+        hu_idx = (n - 1) - (group_index - n)
 
-    # hu_value = first_half_hus[hu_idx]
-    hu_value = hu_list[25]
+    # hu_idx = 15
+    hu_value = first_half_hus[hu_idx]
     # print(f"Slice {z+1:03d} belongs to group {group_index+1}, with HU index {hu_idx} (HU value: {hu_value})")
 
     ds = make_slice(z, hu_value)
@@ -194,6 +205,7 @@ for z in range(n_slices):
         full_volume = None
         break
     
+
 if full_volume is not None:
     # Get the middle row and column for the projections
     mid_row = n_rows // 2
@@ -215,24 +227,33 @@ if full_volume is not None:
     extent_zx = [z_range[0], z_range[1], x_range[0], x_range[1]]
 
     # Create a figure with two subplots
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 5))
+    
+    # Define the custom formatter for the colorbar
+    hu_formatter = FuncFormatter(lambda x, pos: f"{int(x - 1000)}")
         
     # Plot the Z-Y projection
     im1 = ax1.imshow(zy_plane_transposed, cmap='gray', aspect='auto', extent=extent_zy)
     ax1.set_title('Z-Y Plane Projection')
     ax1.set_xlabel('Z (mm)')
     ax1.set_ylabel('Y (mm)')
-    fig.colorbar(im1, ax=ax1, label='HU Value')
+    # --- Corrected Colorbar Creation ---
+    cb1 = fig.colorbar(im1, ax=ax1, label='HU Value')
+    cb1.formatter = hu_formatter
+    cb1.update_ticks()
         
     # Plot the Z-X projection
     im2 = ax2.imshow(zx_plane_transposed, cmap='gray', aspect='auto', extent=extent_zx)
     ax2.set_title('Z-X Plane Projection')
     ax2.set_xlabel('Z (mm)')
     ax2.set_ylabel('X (mm)')
-    fig.colorbar(im2, ax=ax2, label='HU Value')
+    # --- Corrected Colorbar Creation ---
+    cb2 = fig.colorbar(im2, ax=ax2, label='HU Value')
+    cb2.formatter = hu_formatter
+    cb2.update_ticks()
         
     plt.tight_layout()
     plt.savefig('PlaneProjectionsDICOM.pdf', dpi=300)
     plt.close()
         
-    print("[INFO] Successfully created and saved '2D_projections.pdf'.")
+    print("[INFO] Successfully created and saved 'PlaneProjectionsDICOM.pdf'.")

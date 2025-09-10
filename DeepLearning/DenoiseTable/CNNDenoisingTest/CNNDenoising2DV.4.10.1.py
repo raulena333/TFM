@@ -1,6 +1,54 @@
-
+# --- MMD Loss Functions (from MMD.py) ---
 import torch
 import torch.nn as nn
+
+# --- Default Parameters (can be overridden) ---
+_SIGMA = 10.0 # Default bandwidth parameter (float) for the RBF kernel
+
+def _rbf_kernel(x, y, gamma):
+    """
+    Computes the Gaussian Radial Basis Function (RBF) kernel matrix.
+    This kernel measures the similarity between two points in a feature space.
+    A larger value indicates greater similarity. It is used here to compare
+    the embeddings from the feature extractor.
+    """
+    # Calculate the squared Euclidean distance between each pair of points
+    x_sqnorms = torch.sum(x * x, dim=1)
+    y_sqnorms = torch.sum(y * y, dim=1)
+    xy_matmul = torch.matmul(x, y.T)
+    distances_sq = (
+        torch.unsqueeze(x_sqnorms, 1)
+        + torch.unsqueeze(y_sqnorms, 0)
+        - 2 * xy_matmul
+    )
+    # Clamp to avoid numerical instability
+    distances_sq = torch.clamp(distances_sq, min=0.0)
+    # Apply the RBF kernel function: exp(-gamma * distance^2)
+    kernel_matrix = torch.exp(-gamma * distances_sq)
+    return kernel_matrix
+
+def mmd_loss(x, y, sigma=_SIGMA):
+    """
+    Calculates the Maximum Mean Discrepancy (MMD) loss.
+    MMD measures the distance between the distributions of two sets of samples,
+    'x' and 'y', by mapping them into a reproducing kernel Hilbert space.
+    This helps ensure the denoised images have the same statistical properties as
+    the ground truth images.
+    """
+    x = x.float()
+    y = y.float()
+    # Gamma is a parameter for the kernel, derived from sigma (the kernel's bandwidth)
+    gamma = 1.0 / (2 * sigma**2)
+    # Calculate the kernel matrices for x vs x, y vs y, and x vs y
+    k_xx = _rbf_kernel(x, x, gamma)
+    k_yy = _rbf_kernel(y, y, gamma)
+    k_xy = _rbf_kernel(x, y, gamma)
+    # The MMD squared formula is mean(k_xx) + mean(k_yy) - 2 * mean(k_xy)
+    mmd_sq = torch.mean(k_xx) + torch.mean(k_yy) - 2 * torch.mean(k_xy)
+    # Clamp to ensure the loss is not negative due to floating-point errors
+    mmd_sq = torch.clamp(mmd_sq, min=0.0)
+    return mmd_sq
+
 
 # --- 1. Imports ---
 import argparse
@@ -24,8 +72,10 @@ except ImportError:
     mixed_precision_available = False
     print("[INFO] PyTorch AMP (Mixed Precision) is not available. Training will run in full precision.")
 
+
 # --- 2. Global Constants ---
-amplitude_scaling_factor = 1.0
+amplitude_scaling_factor = 1000.0
+
 
 # --- 3. Data Loading Function (Refactored for memory-efficiency) ---
 def load_data_and_metadata_from_npz(method, npz_path):
@@ -129,25 +179,6 @@ class OnTheFlyNPZDataset(Dataset):
         return input_img, target, idx
 
 # --- 5. Robust U-Net Architecture ---
-class UpsampleBlock(nn.Module):
-    """
-    An upsampling block that replaces ConvTranspose2d to avoid checkerboard artifacts.
-    It uses nearest-neighbor interpolation followed by a standard convolution.
-    """
-    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1):
-        super(UpsampleBlock, self).__init__()
-        # NOTE: We do NOT upsample here, as that is now handled in the forward pass
-        # This block simply performs a convolution to refine features.
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=padding)
-        self.norm = nn.InstanceNorm2d(out_channels)
-        self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.norm(x)
-        x = self.relu(x)
-        return x
-
 class ResidualBlock(nn.Module):
     """A standard Residual Block for the U-Net, adding skip connections to prevent vanishing gradients."""
     def __init__(self, in_channels, out_channels):
@@ -182,11 +213,12 @@ class AttentionBlock(nn.Module):
         self.relu = nn.ReLU(inplace=True)
 
     def forward(self, g, x):
+        # g is the gating signal from a deeper layer, x is the skip connection
         g1 = self.W_g(g)
         x1 = self.W_x(x)
         psi = self.relu(g1 + x1)
         psi = self.psi(psi)
-        return x * psi
+        return x * psi # Apply attention to the skip connection features
 
 class SelfAttentionBottleneck(nn.Module):
     """
@@ -196,6 +228,7 @@ class SelfAttentionBottleneck(nn.Module):
     """
     def __init__(self, in_channels, heads=8):
         super(SelfAttentionBottleneck, self).__init__()
+        # LayerNorm is applied to the flattened feature map
         self.norm = nn.LayerNorm(in_channels)
         self.attention = nn.MultiheadAttention(
             embed_dim=in_channels,
@@ -205,14 +238,17 @@ class SelfAttentionBottleneck(nn.Module):
 
     def forward(self, x):
         B, C, H, W = x.shape
+        # Reshape the tensor for the attention layer: (Batch, Pixels, Channels)
         x_flat = x.view(B, C, H * W).permute(0, 2, 1)
         x_norm = self.norm(x_flat)
+        # Apply self-attention
         attn_output, _ = self.attention(x_norm, x_norm, x_norm)
+        # Reshape the output back to the original image shape
         attn_output_reshaped = attn_output.permute(0, 2, 1).view(B, C, H, W)
+        # Add the attention output to the original input (residual connection)
         out = x + attn_output_reshaped
         return out
 
-# --- 3. Rewritten Denoising U-Net with UpsampleBlock and Interpolation ---
 class DenoisingUNet(nn.Module):
     """
     The main Denoising U-Net model with residual blocks, attention gates, and
@@ -242,31 +278,26 @@ class DenoisingUNet(nn.Module):
         self.bottleneck_attn = SelfAttentionBottleneck(in_channels=features_list[4])
         self.dropout_bottleneck = nn.Dropout2d(p=0.5)
 
-        # Decoder path - NOW USING UpsampleBlock INSTEAD OF CONVTRANSPOSE2D
-        # We perform the upsampling in the forward pass to correctly handle odd dimensions
-        self.upconv1 = UpsampleBlock(features_list[4], features_list[3])
+        # Decoder path
+        self.upconv1 = nn.ConvTranspose2d(features_list[4], features_list[3], kernel_size=2, stride=2)
         self.att1 = AttentionBlock(f_g=features_list[3], f_l=features_list[3], f_int=features_list[3]//2)
         self.dec1 = ResidualBlock(features_list[3] + features_list[3], features_list[3])
         self.dropout5 = nn.Dropout2d(p=0.4)
-        
-        self.upconv2 = UpsampleBlock(features_list[3], features_list[2])
+        self.upconv2 = nn.ConvTranspose2d(features_list[3], features_list[2], kernel_size=2, stride=2)
         self.att2 = AttentionBlock(f_g=features_list[2], f_l=features_list[2], f_int=features_list[2]//2)
         self.dec2 = ResidualBlock(features_list[2] + features_list[2], features_list[2])
         self.dropout6 = nn.Dropout2d(p=0.3)
-        
-        self.upconv3 = UpsampleBlock(features_list[2], features_list[1])
+        self.upconv3 = nn.ConvTranspose2d(features_list[2], features_list[1], kernel_size=2, stride=2)
         self.att3 = AttentionBlock(f_g=features_list[1], f_l=features_list[1], f_int=features_list[1]//2)
         self.dec3 = ResidualBlock(features_list[1] + features_list[1], features_list[1])
         self.dropout7 = nn.Dropout2d(p=0.2)
-        
-        self.upconv4 = UpsampleBlock(features_list[1], features_list[0])
+        self.upconv4 = nn.ConvTranspose2d(features_list[1], features_list[0], kernel_size=2, stride=2)
         self.att4 = AttentionBlock(f_g=features_list[0], f_l=features_list[0], f_int=features_list[0]//2)
         self.dec4 = ResidualBlock(features_list[0] + features_list[0], features_list[0])
         self.dropout8 = nn.Dropout2d(p=0.1)
         
         # Final output convolution
         self.final_conv = nn.Conv2d(features_list[0], out_channels, kernel_size=1)
-        self.final_activation = nn.ReLU()
     
     def forward(self, x):
         # Encoder pass
@@ -289,154 +320,142 @@ class DenoisingUNet(nn.Module):
         bottleneck_out = self.dropout_bottleneck(bottleneck_attn_out)
 
         # Decoder pass with attention gates and skip connections
-        up1_interp = F.interpolate(bottleneck_out, size=enc4_out.shape[2:], mode='nearest')
-        up1 = self.upconv1(up1_interp)
+        up1 = self.upconv1(bottleneck_out)
+        # Interpolate if sizes do not match due to odd input dimensions
+        if up1.shape[2:] != enc4_out.shape[2:]:
+            up1 = F.interpolate(up1, size=enc4_out.shape[2:], mode='nearest')
         att1_out = self.att1(g=up1, x=enc4_out)
-        dec1_in = torch.cat([up1, att1_out], dim=1)
+        dec1_in = torch.cat([up1, att1_out], dim=1) # Concatenate upsampled features with attention-gated skip connection
         dec1_out = self.dec1(dec1_in)
         dec1_out = self.dropout5(dec1_out)
         
-        up2_interp = F.interpolate(dec1_out, size=enc3_out.shape[2:], mode='nearest')
-        up2 = self.upconv2(up2_interp)
+        up2 = self.upconv2(dec1_out)
+        if up2.shape[2:] != enc3_out.shape[2:]:
+            up2 = F.interpolate(up2, size=enc3_out.shape[2:], mode='nearest')
         att2_out = self.att2(g=up2, x=enc3_out)
         dec2_in = torch.cat([up2, att2_out], dim=1)
         dec2_out = self.dec2(dec2_in)
         dec2_out = self.dropout6(dec2_out)
         
-        up3_interp = F.interpolate(dec2_out, size=enc2_out.shape[2:], mode='nearest')
-        up3 = self.upconv3(up3_interp)
+        up3 = self.upconv3(dec2_out)
+        if up3.shape[2:] != enc2_out.shape[2:]:
+            up3 = F.interpolate(up3, size=enc2_out.shape[2:], mode='nearest')
         att3_out = self.att3(g=up3, x=enc2_out)
         dec3_in = torch.cat([up3, att3_out], dim=1)
         dec3_out = self.dec3(dec3_in)
         dec3_out = self.dropout7(dec3_out)
         
-        up4_interp = F.interpolate(dec3_out, size=enc1_out.shape[2:], mode='nearest')
-        up4 = self.upconv4(up4_interp)
+        up4 = self.upconv4(dec3_out)
+        if up4.shape[2:] != enc1_out.shape[2:]:
+            up4 = F.interpolate(up4, size=enc1_out.shape[2:], mode='nearest')
         att4_out = self.att4(g=up4, x=enc1_out)
         dec4_in = torch.cat([up4, att4_out], dim=1)
         dec4_out = self.dec4(dec4_in)
         dec4_out = self.dropout8(dec4_out)
         
         logits = self.final_conv(dec4_out)
-        output = self.final_activation(logits)
-        
-        return output
-    
+        return logits
+
+# --- 5.1. NEW: Feature Extractor for MMD Loss ---
+class FeatureExtractor(nn.Module):
+    """
+    A simple, pre-trained CNN to extract a compact vector embedding from a
+    histogram image. This model is frozen during training and acts as a
+    fixed feature space for the MMD loss calculation.
+    """
+    def __init__(self, in_channels=1):
+        super(FeatureExtractor, self).__init__()
+        self.encoder = nn.Sequential(
+            nn.Conv2d(in_channels, 32, kernel_size=4, stride=2, padding=1),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=1),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(128, 256, kernel_size=4, stride=2, padding=1),
+            nn.LeakyReLU(0.2, inplace=True),
+            # Global average pooling to get a single vector per image
+            nn.AdaptiveAvgPool2d(1)
+        )
+    def forward(self, x):
+        x = self.encoder(x)
+        return x.view(x.size(0), -1) # Flatten to (batch_size, 256)
+
 # --- 6. Loss Function ---
-class HybridDenoisingLoss(nn.Module):
+class KLDivergenceLoss(nn.Module):
     """
-    A hybrid loss function combining KLDivLoss for probabilistic shape learning
-    and L1Loss (Mean Absolute Error) for magnitude and sparsity correction,
-    with added support for multiscale loss calculation.
-
-    This loss is particularly effective for low-statistic, sparse data, as it
-    encourages the model to learn both the correct overall shape of the distribution
-    and to drive small, noisy values towards zero. The multiscale component
-    improves learning by considering features at various resolutions.
+    Calculates the KL divergence for signal regions and includes a
+    weighted multi-resolution loss.
     """
-    def __init__(self, kl_weight=1.0, l1_weight=1.0, downsample_factors=None, downsample_weights=None):
+    def __init__(self, downsample_factors=None, downsample_weights=None, reduction='batchmean'):
         """
-        Initializes the hybrid loss with customizable weighting factors and multiscale options.
-
         Args:
-            kl_weight (float): The weighting factor for the KL divergence loss.
-                               This component focuses on matching the probability
-                               distribution shape.
-            l1_weight (float): The weighting factor for the L1 loss.
-                               This component encourages sparsity and corrects
-                               for the magnitude of the predicted values.
-            downsample_factors (list of int, optional): A list of downsampling factors.
-                                                        For each factor, the loss will
-                                                        be calculated on a downsampled
-                                                        version of the inputs.
-            downsample_weights (list of float, optional): A list of weights corresponding
-                                                          to each downsample factor.
-                                                          Must have the same length as
-                                                          `downsample_factors`.
+            downsample_factors (list): Optional list of factors for the multi-scale loss.
+            downsample_weights (list): List of weights corresponding to each downsample factor.
+                                       If None, all weights will be 1.0.
+            reduction (str): Reduction method for KLDivLoss. Use 'batchmean' for correct KL math.
         """
-        super(HybridDenoisingLoss, self).__init__()
+        super(KLDivergenceLoss, self).__init__()
+        self.downsample_factors = downsample_factors if downsample_factors is not None else []
+        self.downsample_weights = downsample_weights if downsample_weights is not None else [1.0] * len(self.downsample_factors)
         
-        # PyTorch's KLDivLoss expects log-probabilities for the predictions
-        # and probabilities for the targets. The `reduction='batchmean'`
-        # averages the loss over all histograms in the batch.
-        self.kl_loss = nn.KLDivLoss(reduction='batchmean')
-        
-        # PyTorch's L1Loss calculates the mean absolute error. It's a simple,
-        # but effective way to push noisy, near-zero values closer to zero.
-        self.l1_loss = nn.L1Loss(reduction='mean')
-        
-        self.kl_weight = kl_weight
-        self.l1_weight = l1_weight
-        
-        if downsample_factors is not None and downsample_weights is not None:
-            if len(downsample_factors) != len(downsample_weights):
-                raise ValueError("downsample_factors and downsample_weights must have the same length.")
-        
-        self.downsample_factors = downsample_factors
-        self.downsample_weights = downsample_weights
+        # Check that weights match downsample factors
+        if len(self.downsample_factors) != len(self.downsample_weights):
+            raise ValueError("The length of 'downsample_factors' must be equal to 'downsample_weights'")
 
-        print(f"[INFO] Initializing HybridDenoisingLoss with KL_weight={self.kl_weight} and L1_weight={self.l1_weight}")
-        print("[INFO] This loss is designed for low-statistic, sparse data.")
-        if self.downsample_factors:
-            print(f"[INFO] Multiscale loss enabled with factors: {self.downsample_factors}")
-
+        self.kl_loss = nn.KLDivLoss(reduction=reduction, log_target=False)
+        
+        print(f"[INFO] Initializing KLDivergenceLoss with downsample factors: {self.downsample_factors} and weights: {self.downsample_weights}")
+        
     def forward(self, inputs, targets):
         """
-        Calculates the total hybrid loss.
-
+        Calculates the total KL loss.
+        
         Args:
             inputs (torch.Tensor): Raw model outputs (logits), shape (B, 1, H, W).
-            targets (torch.Tensor): True targets (probabilities), shape (B, 1, H, W).
+            targets (torch.Tensor): True targets (noisy counts/probabilities), shape (B, 1, H, W).
             
         Returns:
-            torch.Tensor: The calculated total hybrid loss.
+            torch.Tensor: The total calculated KL loss.
         """
-        # --- 1. Calculate KL Divergence Loss and L1 Loss at the original scale ---
-        B, C, H, W = inputs.shape
-        inputs_reshaped = inputs.view(B, -1)
-        
-        log_outputs = F.log_softmax(inputs_reshaped, dim=1)
-        log_outputs = log_outputs.view(B, C, H, W)
-        kl_loss_val = self.kl_loss(log_outputs, targets)
-        
-        outputs_reshaped = F.softmax(inputs_reshaped, dim=1)
-        outputs_prob = outputs_reshaped.view(B, C, H, W)
-        l1_loss_val = self.l1_loss(outputs_prob, targets)
-        
-        total_loss = (self.kl_weight * kl_loss_val) + (self.l1_weight * l1_loss_val)
+        # --- Global KL Divergence Component ---
+        # 1. Normalize targets to form a valid probability distribution
+        target_sum = targets.sum(dim=[2, 3], keepdim=True)
+        # Add a small epsilon to prevent division by zero
+        normalized_targets = targets / (target_sum + 1e-12)
 
-        # --- 2. Calculate and add multiscale loss components ---
-        if self.downsample_factors and self.downsample_weights:
-            for factor, weight in zip(self.downsample_factors, self.downsample_weights):
-                # Downsample inputs and targets
-                downsampled_inputs = F.avg_pool2d(inputs, kernel_size=factor, stride=factor)
-                downsampled_targets = F.avg_pool2d(targets, kernel_size=factor, stride=factor)
-                
-                # Reshape for softmax
-                B, C, H_ds, W_ds = downsampled_inputs.shape
-                downsampled_inputs_reshaped = downsampled_inputs.view(B, -1)
+        # 2. Convert model logits to log-probabilities for KLDivLoss
+        log_softmax_inputs = F.log_softmax(inputs.flatten(start_dim=1), dim=1)
+        normalized_targets_flat = normalized_targets.flatten(start_dim=1)
+        
+        # 3. Calculate the main KL Divergence loss
+        total_loss = self.kl_loss(log_softmax_inputs, normalized_targets_flat)
 
-                # Calculate KL loss at the current scale
-                log_outputs_ds = F.log_softmax(downsampled_inputs_reshaped, dim=1)
-                log_outputs_ds = log_outputs_ds.view(B, C, H_ds, W_ds)
-                kl_loss_ds = self.kl_loss(log_outputs_ds, downsampled_targets)
-                
-                # Calculate L1 loss at the current scale
-                outputs_prob_ds = F.softmax(downsampled_inputs_reshaped, dim=1)
-                outputs_prob_ds = outputs_prob_ds.view(B, C, H_ds, W_ds)
-                l1_loss_ds = self.l1_loss(outputs_prob_ds, downsampled_targets)
-
-                # Add weighted downsampled loss to the total
-                total_loss += weight * ((self.kl_weight * kl_loss_ds) + (self.l1_weight * l1_loss_ds))
+        # --- Add weighted multi-scale KL loss ---
+        for i, factor in enumerate(self.downsample_factors):
+            weight = self.downsample_weights[i]
+            
+            # Reduce the resolution of the inputs and targets
+            downsampled_inputs = F.avg_pool2d(inputs, kernel_size=factor, stride=factor)
+            downsampled_targets = F.avg_pool2d(targets, kernel_size=factor, stride=factor)
+            
+            # Normalize the low-resolution targets
+            downsampled_targets_sum = downsampled_targets.sum(dim=[2, 3], keepdim=True)
+            downsampled_targets_norm = downsampled_targets / (downsampled_targets_sum + 1e-12)
+            
+            # Calculate and weight the KL loss on the low-resolution data
+            downsampled_inputs_log_softmax = F.log_softmax(
+                downsampled_inputs.flatten(start_dim=1), dim=1
+            )
+            total_loss += weight * self.kl_loss(downsampled_inputs_log_softmax, downsampled_targets_norm.flatten(start_dim=1))
 
         return total_loss
-    
-    
+
 # --- 7. Denoising Model Class ---
 class DenoisingModel:
     """
-    A class that encapsulates the U-Net model, the optimizer,
-    and the training loop logic.
+    A class that encapsulates the U-Net model, the Feature Extractor,
+    the optimizer, and the training loop logic.
     """
     def __init__(self, model_params, training_params):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -449,13 +468,21 @@ class DenoisingModel:
             features_list=model_params['features_list']
         ).to(self.device)
         
+        # NEW: Instantiate and freeze the feature extractor.
+        # It's an important new component that provides embeddings for the MMD loss.
+        self.feature_extractor = FeatureExtractor(in_channels=1).to(self.device)
+        self.feature_extractor.eval() # Set to evaluation mode
+        for param in self.feature_extractor.parameters():
+            param.requires_grad = False # Freeze its parameters; it's a fixed reference
+        
         # Initialize the Hybrid KL Divergence loss criterion
-        self.criterion = HybridDenoisingLoss(
-            kl_weight=training_params['kl_weight'],
-            l1_weight=training_params['l1_weight'],
+        self.criterion = KLDivergenceLoss(
             downsample_factors=training_params['downsample_factors'],
             downsample_weights=training_params['downsample_weights']
         )
+        
+        # Store the lambda for the MMD loss
+        self.lambda_mmd = training_params['lambda_mmd']
 
         self.optimizer = optim.AdamW(self.model.parameters(), 
                                      lr=training_params['learning_rate'],
@@ -489,14 +516,39 @@ class DenoisingModel:
                 if self.scaler:
                     with autocast():
                         outputs = self.model(inputs)
-                        loss = self.criterion(outputs, targets)
+                        
+                        # Calculate the Hybrid KL loss
+                        kl_hybrid_loss = self.criterion(outputs, targets)
+                        
+                        # Use the frozen feature extractor to get embeddings for MMD
+                        denoised_embeddings = self.feature_extractor(outputs)
+                        target_embeddings = self.feature_extractor(targets)
+                        
+                        # Calculate MMD loss on the embeddings
+                        mmd_l = mmd_loss(denoised_embeddings, target_embeddings)
+                        
+                        # Combine the two losses with a new hyperparameter, lambda_mmd
+                        loss = kl_hybrid_loss + self.lambda_mmd * mmd_l
                         
                     self.scaler.scale(loss).backward()
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
                 else:
                     outputs = self.model(inputs)
-                    loss = self.criterion(outputs, targets)
+                    
+                    # Calculate the Hybrid KL loss
+                    kl_hybrid_loss = self.criterion(outputs, targets)
+                    
+                    # Use the frozen feature extractor to get embeddings for MMD
+                    denoised_embeddings = self.feature_extractor(outputs)
+                    target_embeddings = self.feature_extractor(targets)
+                    
+                    # Calculate MMD loss on the embeddings
+                    mmd_l = mmd_loss(denoised_embeddings, target_embeddings)
+                    
+                    # Combine the two losses
+                    loss = kl_hybrid_loss + self.lambda_mmd * mmd_l
+                    
                     loss.backward()
                     self.optimizer.step()
 
@@ -511,7 +563,13 @@ class DenoisingModel:
                 for inputs, targets, _ in tqdm(val_loader, desc=f"Epoch {epoch+1}/{num_epochs} [VALID]"):
                     inputs, targets = inputs.to(self.device), targets.to(self.device)
                     outputs = self.model(inputs)
-                    loss = self.criterion(outputs, targets)
+                    
+                    kl_hybrid_loss = self.criterion(outputs, targets)
+                    denoised_embeddings = self.feature_extractor(outputs)
+                    target_embeddings = self.feature_extractor(targets)
+                    mmd_l = mmd_loss(denoised_embeddings, target_embeddings)
+                    loss = kl_hybrid_loss + self.lambda_mmd * mmd_l
+                    
                     val_running_loss += loss.item() * inputs.size(0)
 
             val_epoch_loss = val_running_loss / len(val_loader.dataset)
@@ -538,53 +596,36 @@ class DenoisingModel:
         else:
             print("Warning: No model weights were saved as validation loss never improved.")
         return train_losses, val_losses
-    
+
 # --- 8. Functions for Denoising, Plotting, and Saving ---
 def denoise_full_dataset(denoising_model, histograms_mmap, npz_path, original_shape, hu_values, initial_energies, batch_size=128):
-    """
-    Denoises the entire dataset using the trained model and returns the denoised data.
-    This corrected version applies softmax to the model's logits to get a valid
-    probability distribution, consistent with the training objective. It also
-    explicitly handles the edge case of all-zero noisy input.
-    """
+    """Denoises the entire dataset using the trained model and returns the denoised data."""
     print("\nStarting full dataset denoising...")
     M, E, A, e = original_shape
-    
-    # Note: 'amplitude_scaling_factor' is assumed to be defined globally or passed as an argument.
     full_dataset = OnTheFlyNPZDataset(npz_path, histograms_mmap, hu_values, initial_energies, M, E, A, e, 
-                                      augment_data=False, amplitude_scaling_factor=amplitude_scaling_factor)
+                                     augment_data=False, amplitude_scaling_factor=amplitude_scaling_factor)
     full_loader = DataLoader(full_dataset, batch_size=batch_size, shuffle=False)
     denoised_outputs_list = []
-    
-    # Set the model to evaluation mode
     denoising_model.model.eval()
-
     with torch.no_grad():
-        for inputs, targets, _ in tqdm(full_loader, desc="Denoising batches"):
+        for inputs, _, _ in tqdm(full_loader, desc="Denoising batches"):
             inputs = inputs.to(denoising_model.device)
-            
-            # Denoise the entire batch at once for maximum efficiency.
-            raw_denoised_batch = denoising_model.model(inputs)
-            
-            # Apply softmax to the raw logits to get a valid probability distribution.
-            B, C, H, W = raw_denoised_batch.shape
-            raw_denoised_reshaped = raw_denoised_batch.view(B, -1)
-            denoised_probs_reshaped = F.softmax(raw_denoised_reshaped, dim=1)
-            denoised_probs = denoised_probs_reshaped.view(B, C, H, W)
-            
-            # Handle the zero-input edge cases
-            for i in range(inputs.shape[0]):
-                noisy_slice = inputs[i, 0, :, :]
-                reference_slice = targets[i, 0, :, :].to(denoising_model.device)
-                if torch.sum(noisy_slice) < 1e-12 or torch.sum(reference_slice) < 1e-12:
-                    denoised_probs[i] = torch.zeros_like(denoised_probs[i])
-            
-            # Move the denoised probabilities to the CPU and convert to a NumPy array.
-            denoised_outputs_list.append(denoised_probs.cpu().numpy())
-
+            raw_denoised = denoising_model.model(inputs)
+            raw_denoised_np = raw_denoised.cpu().numpy()
+            noisy_inputs_np = inputs.cpu().numpy()
+            corrected_batch_denoised = np.zeros_like(raw_denoised_np)
+            for i in range(raw_denoised_np.shape[0]):
+                noisy_slice_scaled = noisy_inputs_np[i, 0, :, :]
+                denoised_slice = raw_denoised_np[i, 0, :, :]
+                if np.sum(noisy_slice_scaled) < 1e-12:
+                    corrected_batch_denoised[i, 0, :, :] = np.zeros_like(denoised_slice)
+                else:
+                    flat_denoised = denoised_slice.flatten()
+                    softmax_output = np.exp(flat_denoised) / np.sum(np.exp(flat_denoised))
+                    corrected_batch_denoised[i, 0, :, :] = softmax_output.reshape(denoised_slice.shape)
+            denoised_outputs_list.append(corrected_batch_denoised)
     all_denoised = np.concatenate(denoised_outputs_list, axis=0)
     denoised_4d = all_denoised.reshape(original_shape)
-    
     print(f'[INFO] Total sum of the three 4D arrays ...')
     reference_sum_4d = np.sum(histograms_mmap[1])
     noisy_sum_4d = np.sum(histograms_mmap[0])
@@ -592,7 +633,6 @@ def denoise_full_dataset(denoising_model, histograms_mmap, npz_path, original_sh
     print(f'\t Noisy sum: {noisy_sum_4d}')
     print(f'\t Denoised sum: {denoised_sum_4d}')
     print(f'\t Reference sum: {reference_sum_4d}')
-    
     return denoised_4d
 
 def save_denoised_npz(denoised_4d, output_filename, hu_values, initial_energies, method, extra=None):
@@ -633,7 +673,7 @@ def plot_denoising_results_from_npz(histograms_mmap, denoised_4d, hu_values, ini
         denoised_output_db = 10 * np.log10(denoised_output_np + 1e-12)
         true_clean_db = 10 * np.log10(true_clean_np + 1e-12)
         fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-        fig.suptitle(f'Denoising Example (M: {hu_values[m_idx_to_plot]:.0f} CT, E: {initial_energies[e_idx_to_plot]:.0f} MeV)', fontsize=16)
+        fig.suptitle(f'Denoising Example (M: {hu_values[m_idx_to_plot]:.0f} CT, E: {initial_energies[e_idx_to_plot]:.0f} keV)', fontsize=16)
         im1 = axes[0].imshow(noisy_input_db.T, origin='lower', aspect='auto', cmap='Reds', extent=extent)
         axes[0].set_title('Noisy Input')
         plt.colorbar(im1, ax=axes[0], label='Probability (dB)')
@@ -653,7 +693,7 @@ def plot_denoising_results_from_npz(histograms_mmap, denoised_4d, hu_values, ini
             axes[1].set_xlabel(r'Angle$\sqrt{E_i}$ (deg$\cdot$MeV$^{1/2}$)')
             axes[1].set_ylabel(r'$\frac{ln((E_i-E_f)/E_i)}{\sqrt{E_i}}$ (MeV$^{-1/2}$)')
         im3 = axes[2].imshow(true_clean_db.T, origin='lower', aspect='auto', cmap='Reds', extent=extent)
-        axes[2].set_title('Reference Noisy')
+        axes[2].set_title('Ground Truth')
         plt.colorbar(im3, ax=axes[2], label='Probability (dB)')
         if method == 'normalization':
             axes[2].set_xlabel('Normalized Angle (a.u.)')
@@ -709,38 +749,38 @@ if __name__ == "__main__":
     model_params = {
         'in_channels': 5,
         'out_channels': 1,
-        'features_list': [16, 32, 64, 128, 256],
+        'features_list': [8, 16, 32, 64, 128],
     }
     print(f'[INFO] Model Parameters:')
     print(f'\t.In Channels: {model_params["in_channels"]}')
     print(f'\t.Out Channels: {model_params["out_channels"]}')
     print(f'\t.Features List: {model_params["features_list"]}')
     training_params = {
-        'learning_rate': 5e-5,
+        'learning_rate': 1e-4,
         'weight_decay': 1e-5,
         'scheduler_factor': 0.5,
         'scheduler_patience': 5,
-        'early_stopping_patience': 15,
-        'num_epochs': 200,
-        'kl_weight': 1.,  
-        'l1_weight': 4 if method == 'transformation' else 3.,
-        'downsample_factors': [2, 4, 8, 16],
-        'downsample_weights': [0.5, 0.25, 0.1, 0.05],
+        'lambda_sparse': 1e-6,
+        'downsample_factors' : [2, 4, 8, 16],
+        'downsample_weights': [0.4, 0.3, 0.2, 0.1],
+        'lambda_mmd': 1.0
     }
     print(f'[INFO] Training Parameters:')
     print(f'\t.Learning Rate: {training_params["learning_rate"]}')
     print(f'\t.Weight Decay: {training_params["weight_decay"]}')
     print(f'\t.Scheduler Factor: {training_params["scheduler_factor"]}')
     print(f'\t.Scheduler Patience: {training_params["scheduler_patience"]}')
-    print(f'\t.Early Stopping Patience: {training_params["early_stopping_patience"]}')
-    print(f'\t.Num Epochs: {training_params["num_epochs"]}')
+    print(f'\t.Lambda Sparse: {training_params["lambda_sparse"]}')
+    print(f'\t.Downsample Factors: {training_params["downsample_factors"]}')
+    print(f'\t.Downsample Weights: {training_params["downsample_weights"]}')
+    print(f'\t.Lambda MMD: {training_params["lambda_mmd"]}')
     
     denoising_model = DenoisingModel(model_params, training_params)
     print('[INFO] Number of parameters in the U-Net:', sum(p.numel() for p in denoising_model.model.parameters() if p.requires_grad))
-    # print('[INFO] Number of parameters in the Feature Extractor:', sum(p.numel() for p in denoising_model.feature_extractor.parameters() if p.requires_grad))
+    print('[INFO] Number of parameters in the Feature Extractor:', sum(p.numel() for p in denoising_model.feature_extractor.parameters() if p.requires_grad))
     
     train_losses, val_losses = denoising_model.train_model(
-        train_loader, val_loader, num_epochs=training_params['num_epochs'], early_stopping_patience=training_params['early_stopping_patience']
+        train_loader, val_loader, num_epochs=70, early_stopping_patience=10
     )
 
     # 4. Denoising the full dataset and plotting

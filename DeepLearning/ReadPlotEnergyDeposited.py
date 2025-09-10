@@ -19,11 +19,13 @@ def returnEnergyValueArray(energyFile):
     return x, y, z, energy
 
 if __name__ == "__main__":
+    
+    mode = 'Hetero'
 
     voxelShapeBins = (50, 50, 300)
-    energyFilePath = "./EnergyAtPatientByBinsTOPAS.csv"
-    fluencePath = "./FluenceAtPatientByBinsTOPAS.csv"
-    energyFluencePath = "./EnergyFluenceAtPatientByBinsTOPAS.csv"
+    energyFilePath = f"./EnergyAtPatientByBinsTOPAS{mode}.csv"
+    fluencePath = f"./FluenceAtPatientByBinsTOPAS{mode}.csv"
+    energyFluencePath = f"./EnergyFluenceAtPatientByBinsTOPAS{mode}.csv"
     
     zFlip = lambda z: voxelShapeBins[2] - 1 - z
 

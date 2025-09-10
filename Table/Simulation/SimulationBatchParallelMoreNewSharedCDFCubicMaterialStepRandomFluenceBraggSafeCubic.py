@@ -55,30 +55,6 @@ class BinningConfig:
         return self.binEdges, self.angleStep, self.energyStep
 
 # --------------- TRANSFORMATION VARIABLE ---------------
-# This class represents a histogram sampler for sampling angles and energies based on a given histogram.
-# It initializes with a histogram, calculates the cumulative distribution function (CDF), and provides a method to sample angles and energies.
-class HistogramSampler:
-
-    def __init__(self, hist : np.ndarray, rng=None):
-        self.hist = hist
-        self.angleBins, self.energyBins = hist.shape
-        self.rng = rng or np.random.default_rng()
-
-        self.flatHist = hist.flatten()
-        self.cumsum = np.cumsum(self.flatHist)
-        self.cumsum /= self.cumsum[-1] 
-        
-    def sample(self, size=1) -> Tuple[np.ndarray, np.ndarray]:
-        randValues = self.rng.random(size)
-        idxs = np.searchsorted(self.cumsum, randValues, side='right')
-        angleIdxs, energyIdxs = np.unravel_index(idxs, (self.angleBins, self.energyBins))
-
-        # Use global binning config
-        angles = binningConfig.angleEdges[angleIdxs] + 0.5 * binningConfig.angleStep
-        energies = binningConfig.energyEdges[energyIdxs] + 0.5 * binningConfig.energyStep
-
-        return angles, energies
-
 @numba.jit(parallel=True)
 def buildCdfsFromProbTable(probTable):
     numMaterials, numEnergies, angleBins, energyBins = probTable.shape
@@ -95,26 +71,16 @@ def buildCdfsFromProbTable(probTable):
                 total += flatProbTable[i]
                 cdf[i] = total
             norm = cdf[-1]
-            for i in range(totalBins):  # normalize manually
-                cdf[i] /= norm
-                cdfs[m, e, i] = cdf[i]
+            
+            if norm == 0.0:  # handle zero norm case
+                # Set CDF to zeros if total probability is zero (expected for some low energies)
+                cdfs[m, e, :] = 0
+            else:
+                for i in range(totalBins):  # normalize manually
+                    cdf[i] /= norm
+                    cdfs[m, e, i] = cdf[i]
 
     return cdfs
-
-# --------------- TRANSFORMATION VARIABLE --------------
-def prebuildSamplers(data : dict, angleRange : tuple, energyRange : tuple, materialToIndex : dict):
-    global samplerCache, binningConfig
-
-    # Create global binning config
-    angleBins, energyBins = data['probTable'].shape[2:]
-    binningConfig = BinningConfig(angleRange, energyRange, angleBins, energyBins)
-
-    for materialIdx in materialToIndex.values():
-        for energyIdx in range(len(data['energies'])):
-            cacheKey = (materialIdx, energyIdx)
-            if cacheKey not in samplerCache:
-                hist = data['probTable'][materialIdx, energyIdx]
-                samplerCache[cacheKey] = HistogramSampler(hist)
                 
 # --------------- TRANSFORMATION VARIABLE --------------
 @numba.jit(nopython=True, inline = 'always') 
@@ -748,18 +714,6 @@ def getCatmullRomPoints(array, i):
     f1  = array[min(i + 1, n - 1)]
     f2  = array[min(i + 2, n - 1)]
     return f_1, f0, f1, f2
-
-# --------------- COMMON FUNCTIONS ---------------
-def quadraticInterpolation(x_1, y_1, x0, y0, x1, y1, x):
-    L_1 = ((x - x0)*(x - x1)) / ((x_1 - x0)*(x_1 - x1))
-    L0 = ((x - x_1)*(x - x1)) / ((x0 - x_1)*(x0 - x1))
-    L1 = ((x - x_1)*(x - x0)) / ((x1 - x_1)*(x1 - x0))
-    return y_1*L_1 + y0*L0 + y1*L1
-
-# --------------- COMMON FUNCTIONS ---------------
-def linearInterpolation(x0, y0, x1, y1, x):
-    return y0 + (y1 - y0) * ((x - x0) / (x1 - x0))
-
         
 # --------------- COMMON FUNCTIONS ---------------
 def simulateBatchParticlesWorker(args):
@@ -1055,7 +1009,7 @@ if __name__ == "__main__":
     voxelShapeBins = np.array((50, 50, 300), dtype=np.int32)
     voxelSize = 2 * bigVoxelSize / voxelShapeBins # in mm 
     
-    angleRange = (0, 200)
+    angleRange = (0, 70)
     energyRange = (-0.6, 0)
     angleBins = 100
     energyBins = 100
@@ -1072,12 +1026,12 @@ if __name__ == "__main__":
     # Directory setup
     baseFolder = {
         'transformation': {
-            'npzPath': './Table/4DTableTransCubic.npz',
+            'npzPath': './Table/4DTableTransSheet.npz',
             'npyPath': './Numpy/',
             'csvPath': './CSV/'
         },
         'normalization': {
-            'npzPath': './TableNormalized/4DTableNormCubic.npz',
+            'npzPath': './TableNormalized/4DTableNormSheet.npz',
             'npyPath': './NumpyNormalized/',
             'csvPath': './CSVNormalized/'
         }
@@ -1096,6 +1050,9 @@ if __name__ == "__main__":
     probTable = rawData['probTable']
     materials = rawData['materials'].tolist()
     energies = rawData['energies']
+    
+    print(rawData['materials'])
+    print(rawData['energies'])
     
     # --- Load braggTable ---
     braggPath = './BraggPeak/escapeProbs.npz'
@@ -1116,7 +1073,6 @@ if __name__ == "__main__":
         data['thetaMin'] = rawData['thetaMin']
         data['energyMin'] = rawData['energyMin']
         data['energyMax'] = rawData['energyMax']
-        
     rawData.close()
     braggData.close()
     

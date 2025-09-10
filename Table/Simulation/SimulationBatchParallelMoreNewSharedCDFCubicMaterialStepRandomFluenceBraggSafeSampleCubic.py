@@ -86,7 +86,7 @@ def buildCdfsFromProbTable(probTable):
 
     cdfs = np.empty((numMaterials, numEnergies, totalBins), dtype=np.float32)
 
-    for m in prange(numMaterials):  # parallel over materials
+    for m in range(numMaterials):  # parallel over materials
         for e in range(numEnergies):
             flatProbTable = probTable[m, e].ravel()  # flatten 2D bin table
             cdf = np.empty_like(flatProbTable)
@@ -95,9 +95,14 @@ def buildCdfsFromProbTable(probTable):
                 total += flatProbTable[i]
                 cdf[i] = total
             norm = cdf[-1]
-            for i in range(totalBins):  # normalize manually
-                cdf[i] /= norm
-                cdfs[m, e, i] = cdf[i]
+            
+            if norm == 0.0:  # handle zero norm case
+                # Set CDF to zeros if total probability is zero (expected for some low energies)
+                cdfs[m, e, :] = 0
+            else:
+                for i in range(totalBins):  # normalize manually
+                    cdf[i] /= norm
+                    cdfs[m, e, i] = cdf[i]
 
     return cdfs
 
@@ -1214,7 +1219,7 @@ if __name__ == "__main__":
         data['thetaMin'] = rawData['thetaMin']
         data['energyMin'] = rawData['energyMin']
         data['energyMax'] = rawData['energyMax']
-        
+
     rawData.close()
     braggData.close()
     

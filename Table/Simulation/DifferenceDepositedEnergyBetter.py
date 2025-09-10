@@ -3,13 +3,14 @@ import matplotlib.pyplot as plt
 import matplotlib.pylab as pylab
 import os
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+import matplotlib.ticker as ticker
 
 # Matplotlib params
 params = {
-    'xtick.labelsize': 16,    
-    'ytick.labelsize': 16,      
-    'axes.titlesize': 16,
-    'axes.labelsize': 16,
+    'xtick.labelsize': 18,    
+    'ytick.labelsize': 18,      
+    'axes.titlesize': 18,
+    'axes.labelsize': 18,
     'legend.fontsize': 12
 }
 pylab.rcParams.update(params)  # Apply changes
@@ -23,14 +24,29 @@ def createPhysicalSpace(bigVoxel, voxelShapeBins):
     return xRange, yRange, zRange
 
 def get_voxel_index_z(z, z_min=-150.0, z_max=150.0, num_bins=300):
-    voxel_size = (z_max - z_min) / num_bins  # = 1.0 mm
+    voxel_size = (z_max - z_min) / num_bins 
     index = int((z - z_min) // voxel_size)
+    return index
+
+def get_voxel_index_y(y, y_min=-100.0, y_max=100.0, num_bins=50):
+    voxel_size = (y_max - y_min) / num_bins
+    index = int((y - y_min) // voxel_size)
+    return index
+
+def get_voxel_index_x(x, x_min=-100.0, x_max=100.0, num_bins=50):
+    voxel_size = (x_max - x_min) / num_bins
+    index = int((x - x_min) // voxel_size)
     return index
 
 # Define a helper to extract lateral profiles
 def getLateralProfile(data, z_index):
     return data[:, :, z_index]
 
+def getYZProfile(data, x_index):
+    return data[x_index, :, :]
+
+def getXZProfile(data, y_index):
+    return data[:, y_index, :]
 
 fileNameTOPAS = "./energyDepositedTOPAS.npy"
 
@@ -69,16 +85,20 @@ plt.plot(zRange, sim1Z, label='TOPAS', color='red', linestyle='-', linewidth=1)
 plt.plot(zRange, sim2Z, label='Transformation', color='blue', linestyle='--', linewidth=1)
 plt.plot(zRange, sim3Z, label='Normalization', color='green', linestyle='--', linewidth=1)
 plt.xlabel('Z (mm)')
-plt.ylabel('Energy deposited (MeV)')
+plt.ylabel('Energy deposition (MeV)')
 plt.legend(loc='best', shadow=True, fancybox=True, framealpha=0.9)
 plt.grid(True)
+
+# Get the exponent of the main plot's y-axis scale
+y_max_main = ax.get_ylim()[1]
+main_exp = int(np.floor(np.log10(y_max_main)))
 
 # Create inset axes for differences
 ax_inset = inset_axes(
     ax,
     width="110%",
     height="110%",
-    bbox_to_anchor=(0.14, 0.6, 0.3, 0.3),  # (x0, y0, width, height) in axes fraction (0 to 1)
+    bbox_to_anchor=(0.18, 0.45, 0.3, 0.3),  # (x0, y0, width, height) in axes fraction (0 to 1)
     bbox_transform=ax.transAxes,
     borderpad=0        
 )
@@ -88,14 +108,33 @@ diffSim3 = sim1Z - sim3Z
 
 ax_inset.plot(zRange, diffSim2, label='TOPAS - Transformation', color='blue', linestyle='-', linewidth=1)
 ax_inset.plot(zRange, diffSim3, label='TOPAS - Normalization', color='green', linestyle='-', linewidth=1)
-ax_inset.set_xlabel('Z (mm)', fontsize=10)
-ax_inset.set_ylabel('Difference (MeV)', fontsize=10)
-ax_inset.tick_params(labelsize=8)
+
+# Configure a ScalarFormatter to use the same scientific exponent as the main plot
+formatter = ticker.ScalarFormatter(useMathText=True)
+formatter.set_scientific(True)
+formatter.set_powerlimits((main_exp, main_exp))
+        
+# Apply the formatter to the inset's y-axis
+ax_inset.yaxis.set_major_formatter(formatter)
+
+ax_inset.set_xlabel('Z (mm)', fontsize=13)
+ax_inset.set_ylabel('Difference (MeV)', fontsize=13)
+#ax_inset.set_title("Difference (MeV)", fontsize=10)
+ax_inset.tick_params(labelsize=11)
 ax_inset.grid(True)
 
 plt.tight_layout()
 plt.savefig(f'{savePath}EnergyDepositionZ.pdf')
 plt.close()
+
+# Integrate the curves to get the total deposited energy for each simulation
+totalEnergyTOPAS = np.trapz(sim1Z, zRange)
+totalEnergyTrans = np.trapz(sim2Z, zRange)
+totalEnergyNorm = np.trapz(sim3Z, zRange)
+
+print(f"Total energy deposited (TOPAS): {totalEnergyTOPAS} MeV")
+print(f"Total energy deposited (Transformation): {totalEnergyTrans} MeV")
+print(f"Total energy deposited (Normalization): {totalEnergyNorm} MeV")
 
 # Calculate Bragg peak position for each simulation
 braggIndex1 = np.argmax(sim1Z)
@@ -125,7 +164,7 @@ for title, zIdx in zSlices.items():
 
     ax.set_xlim(-voxelBig[0] / 2, voxelBig[0] / 2)
     ax.set_xlabel('X (mm)')
-    ax.set_ylabel('Energy (MeV)')
+    ax.set_ylabel('Energy deposition (MeV)')
     ax.grid(True)
     ax.legend()
     
@@ -144,10 +183,20 @@ for title, zIdx in zSlices.items():
     
     ax_inset.plot(xRange, diff_x_sim2, label='TOPAS - Transformation', color='blue', linestyle='-')
     ax_inset.plot(xRange, diff_x_sim3, label='TOPAS - Normalization', color='green', linestyle='-')
+    
+    # New code for inset formatting
+    y_max_main_x = ax.get_ylim()[1]
+    main_exp_x = int(np.floor(np.log10(y_max_main_x)))
+    formatter_x = ticker.ScalarFormatter(useMathText=True)
+    formatter_x.set_scientific(True)
+    formatter_x.set_powerlimits((main_exp_x, main_exp_x))
+    ax_inset.yaxis.set_major_formatter(formatter_x)
+
     ax_inset.set_xlim(-voxelBig[0] / 2, voxelBig[0] / 2)
-    ax_inset.set_xlabel('X (mm)', fontsize=10)
-    ax_inset.set_ylabel('Difference (MeV)', fontsize=10)
-    ax_inset.tick_params(labelsize=8)
+    ax_inset.set_xlabel('X (mm)', fontsize=13)
+    # ax_inset.set_ylabel('Difference (MeV)', fontsize=13)
+    # ax_inset.set_title('Difference (MeV)', fontsize=10)
+    ax_inset.tick_params(labelsize=11)
     ax_inset.grid(True)
 
     plt.tight_layout()
@@ -184,10 +233,20 @@ for title, zIdx in zSlices.items():
 
     ax_inset.plot(yRange, diff_y_sim2, label='TOPAS - Transformation', color='blue', linestyle='-')
     ax_inset.plot(yRange, diff_y_sim3, label='TOPAS - Normalization', color='green', linestyle='-')
+    
+    # New code for inset formatting
+    y_max_main_x = ax.get_ylim()[1]
+    main_exp_x = int(np.floor(np.log10(y_max_main_x)))
+    formatter_x = ticker.ScalarFormatter(useMathText=True)
+    formatter_x.set_scientific(True)
+    formatter_x.set_powerlimits((main_exp_x, main_exp_x))
+    ax_inset.yaxis.set_major_formatter(formatter_x)
+    
     ax_inset.set_xlim(-voxelBig[1] / 2, voxelBig[1] / 2)
-    ax_inset.set_xlabel('Y (mm)', fontsize=10)
-    ax_inset.set_ylabel('Difference (MeV)', fontsize=10)
-    ax_inset.tick_params(labelsize=8)
+    ax_inset.set_xlabel('Y (mm)', fontsize=13)
+    # ax_inset.set_ylabel('Difference (MeV)', fontsize=10)
+    # ax_inset.set_title('Difference (MeV)', fontsize=10)
+    ax_inset.tick_params(labelsize=11)
     ax_inset.grid(True)
 
     plt.tight_layout()
@@ -262,7 +321,7 @@ ax_inset = inset_axes(
     ax,
     width="110%",
     height="110%",
-    bbox_to_anchor=(0.24, 0.2, 0.3, 0.3),  # (x0, y0, width, height) in axes fraction (0 to 1)
+    bbox_to_anchor=(0.18, 0.2, 0.3, 0.3),  # (x0, y0, width, height) in axes fraction (0 to 1)
     bbox_transform=ax.transAxes,
     borderpad=0        
 )
@@ -272,10 +331,11 @@ diffMeanNorm = profileZMeanTOPAS - profileZMeanNorm
 
 ax_inset.plot(zRange, diffMeanTrans, label='TOPAS - Transformation', color='blue', linestyle='-', linewidth=1)
 ax_inset.plot(zRange, diffMeanNorm, label='TOPAS - Normalization', color='green', linestyle='-', linewidth=1)
-ax_inset.set_xlabel('Z (mm)', fontsize=10)
+
+ax_inset.set_xlabel('Z (mm)', fontsize=13)
 #ax_inset.set_xlim(-150, -100)
-ax_inset.set_ylabel('Difference (MeV)', fontsize=10)
-ax_inset.tick_params(labelsize=8)
+ax_inset.set_ylabel('Difference (MeV)', fontsize=12)
+ax_inset.tick_params(labelsize=11)
 ax_inset.grid(True)
 
 plt.tight_layout()
@@ -396,6 +456,7 @@ diff_norm = profile_topas_x - profile_norm_x
 ax_inset.plot(xCenters, diff_trans, label='TOPAS - Trans', color='blue', lw=1)
 ax_inset.plot(xCenters, diff_norm, label='TOPAS - Norm', color='green', lw=1)
 ax_inset.tick_params(labelsize=8)
+ax_inset.set_title("Difference (MeV)", fontsize=10)
 ax_inset.grid(True)
 
 plt.tight_layout()
@@ -425,7 +486,7 @@ diff_trans = profile_topas_y - profile_trans_y
 diff_norm = profile_topas_y - profile_norm_y
 ax_inset.plot(yCenters, diff_trans, label='TOPAS - Trans', color='blue', lw=1)
 ax_inset.plot(yCenters, diff_norm, label='TOPAS - Norm', color='green', lw=1)
-ax_inset.set_title("Difference", fontsize=9)
+ax_inset.set_title("Difference (MeV)", fontsize=10)
 ax_inset.tick_params(labelsize=8)
 ax_inset.grid(True)
 
@@ -433,123 +494,200 @@ plt.tight_layout()
 plt.savefig(os.path.join(savePath, "EnergyProfile_Y_withInset.pdf"), dpi=300)
 plt.close()
 
-# # Extract the 2D XY slice (Z = 0)
-# sliceIndex = 2
-# mean_topas = meanEnergyGridTOPAS[:, :, sliceIndex]
-# mean_trans = meanEnergyGridTrans[:, :, sliceIndex]
-# mean_norm = meanEnergyGridNorm[:, :, sliceIndex]
+xSlices = {
+    'Zone1(x~-40)': get_voxel_index_x(-40),
+    'Zone2(x~-20)': get_voxel_index_x(-20),
+    'Zone3(x~-10)': get_voxel_index_x(-10),
+    'Zone4(x~0)': get_voxel_index_x(0),
+    'Zone5(x~10)': get_voxel_index_x(10),
+    'Zone6(x~20)': get_voxel_index_x(20),
+    'Zone7(x~40)': get_voxel_index_x(40),
+}
 
-# # Create meshgrid for plotting (center of voxel)
-# xCenters = xRange + (xRange[1] - xRange[0]) / 2
-# yCenters = yRange + (yRange[1] - yRange[0]) / 2
-# X, Y = np.meshgrid(xCenters, yCenters, indexing='ij')
+savePath = "./PlotsBetter/ProfileYZ/"
+os.makedirs(savePath, exist_ok=True)
 
-# # ----------------- 2D Heatmaps -----------------
-# fig, axs = plt.subplots(1, 3, figsize=(18, 5))
+# Plotting loop for YZ planes
+for title, xIdx in xSlices.items():
+    fig, axs = plt.subplots(1, 3, figsize=(14, 5), sharex=True, sharey=True)
+    fig.suptitle(f'YZ Plane Energy Deposition at {title}', fontsize=16)
 
-# im0 = axs[0].pcolormesh(X, Y, mean_topas, cmap='plasma')
-# axs[0].set_title("TOPAS Mean Energy [MeV]")
-# axs[0].set_xlabel("X [mm]")
-# axs[0].set_ylabel("Y [mm]")
-# plt.colorbar(im0, ax=axs[0])
+    sims = [sim1, sim2, sim3]
+    labels = ['TOPAS', 'Transformation', 'Normalization']
+    cmaps = ['Reds', 'Blues', 'Greens']
 
-# im1 = axs[1].pcolormesh(X, Y, mean_trans, cmap='plasma')
-# axs[1].set_title("Transformation Sampling Mean Energy")
-# axs[1].set_xlabel("X [mm]")
-# axs[1].set_ylabel("Y [mm]")
-# plt.colorbar(im1, ax=axs[1])
+    for i, (sim, label, cmap) in enumerate(zip(sims, labels, cmaps)):
+        # Get the YZ plane slice
+        yz_plane = getYZProfile(sim, xIdx) 
 
-# im2 = axs[2].pcolormesh(X, Y, mean_norm, cmap='plasma')
-# axs[2].set_title("Normalization Sampling Mean Energy")
-# axs[2].set_xlabel("X [mm]")
-# axs[2].set_ylabel("Y [mm]")
-# plt.colorbar(im2, ax=axs[2])
+        im = axs[i].imshow(
+            yz_plane,
+            extent=[zRange[0], zRange[-1], yRange[0], yRange[-1]],
+            origin='lower',
+            cmap=cmap,
+            aspect='equal'
+        )
+        axs[i].set_title(label)
+        axs[i].set_xlabel('Z (mm)')
+        if i == 0:
+            axs[i].set_ylabel('Y (mm)')
+        fig.colorbar(im, ax=axs[i], shrink=0.75, label='Energy (MeV)')
 
-# plt.tight_layout()
-# plt.savefig(os.path.join(savePath, "MeanEnergyComparison.pdf"), dpi=300)
-# plt.close()
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.savefig(f'{savePath}YZslice_{title}.pdf')
+    plt.close()
 
-# # ----------------- 1D Profiles -----------------
+ySlices = {
+    'Zone1(y~-40)': get_voxel_index_y(-40),
+    'Zone2(y~-20)': get_voxel_index_y(-20),
+    'Zone3(y~-10)': get_voxel_index_y(-10),
+    'Zone4(y~0)': get_voxel_index_y(0),
+    'Zone5(y~10)': get_voxel_index_y(10),
+    'Zone6(y~20)': get_voxel_index_y(20),
+    'Zone7(y~40)': get_voxel_index_y(40),
+}
 
-# # Sum or average along axes
-# # profile_topas_x = np.mean(mean_topas, axis=1)
-# # profile_topas_y = np.mean(mean_topas, axis=0)
+savePath = "./PlotsBetter/ProfileXZ/"
+os.makedirs(savePath, exist_ok=True)
+  
+for title, yIdx in ySlices.items():
+    fig, axs = plt.subplots(1, 3, figsize=(14, 5), sharex=True, sharey=True)
+    fig.suptitle(f'XZ Plane Energy Deposition at {title}', fontsize=16)
 
-# # profile_trans_x = np.mean(mean_trans, axis=1)
-# # profile_trans_y = np.mean(mean_trans, axis=0)
+    sims = [sim1, sim2, sim3]
+    labels = ['TOPAS', 'Transformation', 'Normalization']
+    cmaps = ['Reds', 'Blues', 'Greens']
 
-# # profile_norm_x = np.mean(mean_norm, axis=1)
-# # profile_norm_y = np.mean(mean_norm, axis=0)
-# yIndex = 2
-# profile_topas_x = mean_topas[:, yIndex]
-# profile_trans_x = mean_trans[:, yIndex]
-# profile_norm_x = mean_norm[:, yIndex]
+    for i, (sim, label, cmap) in enumerate(zip(sims, labels, cmaps)):
+        # Get the XZ plane slice
+        xz_plane = getXZProfile(sim, yIdx)
 
-# xIndex = 2
-# profile_topas_y = mean_topas[xIndex, :]
-# profile_trans_y = mean_trans[xIndex, :]
-# profile_norm_y = mean_norm[xIndex, :]
+        im = axs[i].imshow(
+            xz_plane,
+            extent=[zRange[0], zRange[-1], xRange[0], xRange[-1]],
+            origin='lower',
+            cmap=cmap,
+            aspect='equal'
+        )
+        axs[i].set_title(label)
+        axs[i].set_xlabel('Z (mm)')
+        if i == 0:
+            axs[i].set_ylabel('X (mm)')
+        fig.colorbar(im, ax=axs[i], shrink=0.75, label='Energy (MeV)')
 
-# # Plot X profile
-# fig, ax = plt.subplots(figsize=(8, 5))
-# ax.plot(xCenters, profile_topas_x, label='TOPAS', lw=1, linestyle='-', color='red')
-# ax.plot(xCenters, profile_trans_x, label='Transformation', lw=1, linestyle='--', color='blue')
-# ax.plot(xCenters, profile_norm_x, label='Normalization', lw=1, linestyle='--', color='green')
-# ax.set_xlabel("X [mm]")
-# ax.set_ylabel("Mean Energy [MeV]")
-# ax.set_title("Mean Energy Profile along X")
-# ax.legend()
-# ax.grid(True)
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.savefig(f'{savePath}XZslice_{title}.pdf')
+    plt.close()
 
-# # Inset
-# ax_inset = inset_axes(
-#     ax,
-#     width="110%",
-#     height="110%",
-#     bbox_to_anchor=(0.1, 0.5, 0.3, 0.3),  # (x0, y0, width, height) in axes fraction (0 to 1)
-#     bbox_transform=ax.transAxes,
-#     borderpad=0        
-# )
-# diff_trans = profile_topas_x - profile_trans_x
-# diff_norm = profile_topas_x - profile_norm_x
-# ax_inset.plot(xCenters, diff_trans, color='blue', lw=1)
-# ax_inset.plot(xCenters, diff_norm, color='green', lw=1)
-# ax_inset.set_title("Difference", fontsize=9)
-# ax_inset.tick_params(labelsize=8)
-# ax_inset.grid(True)
+#####################################################
+import matplotlib.colors as colors
 
-# plt.tight_layout()
-# plt.savefig(os.path.join(savePath, "MeanEnergyProfile_X_withInset.pdf"), dpi=300)
-# plt.close()
+# --- Control Variable ---
+useLog = True  # Set to False for a normal (linear) color scale
 
-# # Plot Y profile
-# fig, ax = plt.subplots(figsize=(8, 5))
-# ax.plot(yCenters, profile_topas_y, label='TOPAS', lw=1, linestyle='-', color='red')
-# ax.plot(yCenters, profile_trans_y, label='Transformation', lw=1, linestyle='--', color='blue')
-# ax.plot(yCenters, profile_norm_y, label='Normalization', lw=1, linestyle='--', color='green')
-# ax.set_xlabel("Y [mm]")
-# ax.set_ylabel("Mean Energy [MeV]")
-# ax.set_title("Mean Energy Profile along Y")
-# ax.legend()
-# ax.grid(True)
+# --- Define the data and plot parameters once ---
+sims = [sim1, sim2, sim3]
+labels = ['TOPAS', 'Transformation', 'Normalization']
+cmaps = ['Reds', 'Blues', 'Greens']
 
-# # Inset
-# ax_inset = inset_axes(
-#     ax,
-#     width="110%",
-#     height="110%",
-#     bbox_to_anchor=(0.1, 0.5, 0.3, 0.3),  # (x0, y0, width, height) in axes fraction (0 to 1)
-#     bbox_transform=ax.transAxes,
-#     borderpad=0        
-# )
-# diff_trans = profile_topas_y - profile_trans_y
-# diff_norm = profile_topas_y - profile_norm_y
-# ax_inset.plot(yCenters, diff_trans, color='blue', lw=1)
-# ax_inset.plot(yCenters, diff_norm, color='green', lw=1)
-# ax_inset.set_title("Difference", fontsize=9)
-# ax_inset.tick_params(labelsize=8)
-# ax_inset.grid(True)
+ySlices = {'Zone4(y~0)': get_voxel_index_y(0)}
+xSlices = {'Zone4(x~0)': get_voxel_index_x(0)}
 
-# plt.tight_layout()
-# plt.savefig(os.path.join(savePath, "MeanEnergyProfile_Y_withInset.pdf"), dpi=300)
-# plt.close()
+# Calculate Bragg peak position once
+braggIndex1 = np.argmax(sim1Z)
+bragg_z_pos = zRange[braggIndex1]
+
+# --- Prepare data based on the 'useLog' flag ---
+if useLog:
+    # Collect all data planes to determine a single global vmin/vmax
+    all_data_planes = []
+
+    # Collect all XZ planes
+    for sim in sims:
+        for _, yIdx in ySlices.items():
+            xz_plane = getXZProfile(sim, yIdx)
+            # Handle zero values for log scale
+            xz_plane = np.where(xz_plane > 0, xz_plane, 1e-12)
+            all_data_planes.append(xz_plane)
+
+    # Collect all YZ planes
+    for sim in sims:
+        for _, xIdx in xSlices.items():
+            yz_plane = getYZProfile(sim, xIdx)
+            # Handle zero values for log scale
+            yz_plane = np.where(yz_plane > 0, yz_plane, 1e-12)
+            all_data_planes.append(yz_plane)
+
+    # Calculate the single global min and max
+    global_min = min(plane.min() for plane in all_data_planes)
+    global_max = max(plane.max() for plane in all_data_planes)
+    
+    # Define the normalization object
+    norm = colors.LogNorm(vmin=global_min, vmax=global_max)
+else:
+    # No normalization object needed for linear scale
+    norm = None
+
+# --- Plotting XZ planes ---
+savePath_xz = "./PlotsBetter/ProfileXZ/"
+os.makedirs(savePath_xz, exist_ok=True)
+
+for title, yIdx in ySlices.items():
+    fig, axs = plt.subplots(1, 3, figsize=(15, 5), sharex=True, sharey=True)
+    
+    for i, (sim, label, cmap) in enumerate(zip(sims, labels, cmaps)):
+        xz_plane = getXZProfile(sim, yIdx)
+        if useLog:
+            xz_plane = np.where(xz_plane > 0, xz_plane, 1e-12)
+
+        im = axs[i].imshow(
+            xz_plane,
+            extent=[zRange[0], zRange[-1], xRange[0], xRange[-1]],
+            origin='lower',
+            cmap=cmap,
+            aspect='equal',
+            norm=norm
+        )
+        axs[i].set_title(label)
+        axs[i].set_xlabel('Z (mm)')
+        if i == 0:
+            axs[i].set_ylabel('X (mm)')
+        fig.colorbar(im, ax=axs[i], shrink=0.75, label='Energy (MeV)')
+        axs[i].axvline(bragg_z_pos, color='k', linestyle='--', linewidth=1.5)
+        axs[i].axvline(0, color='k', linestyle=':', linewidth=1.5)
+    
+    plt.tight_layout()
+    plt.savefig(f'{savePath_xz}XZslice_{title}.pdf')
+    plt.close()
+
+# --- Plotting YZ planes ---
+savePath_yz = "./PlotsBetter/ProfileYZ/"
+os.makedirs(savePath_yz, exist_ok=True)
+
+for title, xIdx in xSlices.items():
+    fig, axs = plt.subplots(1, 3, figsize=(15, 5), sharex=True, sharey=True)
+
+    for i, (sim, label, cmap) in enumerate(zip(sims, labels, cmaps)):
+        yz_plane = getYZProfile(sim, xIdx)
+        if useLog:
+            yz_plane = np.where(yz_plane > 0, yz_plane, 1e-12)
+
+        im = axs[i].imshow(
+            yz_plane,
+            extent=[zRange[0], zRange[-1], yRange[0], yRange[-1]],
+            origin='lower',
+            cmap=cmap,
+            aspect='equal',
+            norm=norm
+        )
+        axs[i].set_title(label)
+        axs[i].set_xlabel('Z (mm)')
+        if i == 0:
+            axs[i].set_ylabel('Y (mm)')
+        fig.colorbar(im, ax=axs[i], shrink=0.75, label='Energy Deposition (MeV)')
+        axs[i].axvline(bragg_z_pos, color='k', linestyle='--', linewidth=1.5)
+        axs[i].axvline(0, color='k', linestyle=':', linewidth=1.5)
+    
+    plt.tight_layout()
+    plt.savefig(f'{savePath_yz}YZslice_{title}.pdf')
+    plt.close()

@@ -9,19 +9,32 @@ b:Ge/World/Invisible = "TRUE"
 # TestBox:
 s:Ge/Patient/Type = "TsDicomPatient" 
 s:Ge/Patient/Parent  = "World"
-sv:Ge/Patient/DicomModalityTags = 2 "CT" "DCM"
+sv:Ge/Patient/DicomModalityTags = 1 "CT"
 s:Ge/Patient/DicomDirectory = "dicom_data"
 
 s:Ge/Patient/ImagingToMaterialConverter = "MyImagingToMaterialConverter1"
 sv:Ge/Patient/ElementSymbols = 16 "G4_H" "G4_C" "G4_N" "G4_O" "G4_P" "G4_Ca" "G4_Na" "G4_Mg" "G4_S" "G4_Cl" "G4_K" "G4_Fe" "G4_I" "G4_F" "G4_Sb" "G4_Sn"
 s:Ge/Patient/MaterialsTableFile = "./InterpolationData.txt"
 
+d:Ge/Patient/HLX = 100. mm
+d:Ge/Patient/HLY = 100. mm
+d:Ge/Patient/HLZ = 150. mm
+d:Ge/Patient/TransX = 0. mm
+d:Ge/Patient/TransY = 0. mm
+d:Ge/Patient/TransZ = 0 mm
+d:Ge/Patient/RotX = 0. deg
+d:Ge/Patient/RotY = 0. deg
+d:Ge/Patient/RotZ = 0. deg
+i:Ge/Patient/XBins = 50
+i:Ge/Patient/YBins = 50
+i:Ge/Patient/ZBins = 300
+
 # BeamPosition:
 s:Ge/BeamPosition/Type = "Group"
 s:Ge/BeamPosition/Parent  = "World"
 d:Ge/BeamPosition/TransX = 0. mm
 d:Ge/BeamPosition/TransY = 0. mm
-d:Ge/BeamPosition/TransZ = 150.0 mm
+d:Ge/BeamPosition/TransZ = 151.0 mm
 
 ####################################################
 # Scoring
@@ -29,13 +42,17 @@ d:Ge/BeamPosition/TransZ = 150.0 mm
 s:Sc/EnergyAtPatient/Quantity = "EnergyDeposit"
 s:Sc/EnergyAtPatient/Component = "Patient"
 s:Sc/EnergyAtPatient/OutputFile = "EnergyAtPatientByBinsTOPAS"
-s:Sc/EnergyAtPatient/IfOutputFileAlreadyExists = "Overwrite"
+s:Sc/EnergyAtPatient/IfOutputFileAlreadyExists = "Overwrite" # "Overwrite", "Exit" or "Increment"
+#s:Sc/EnergyAtPatient/OnlyIncludeParticlesOfGeneration = "Primary"
+#sv:Sc/EnergyAtPatient/OnlyIncludeParticlesNamed = 1 "proton"
 # b:Sc/EnergyAtPatient/OutputToConsole = "True"
 
 s:Sc/FluenceAtPatient/Quantity = "Fluence"
 s:Sc/FluenceAtPatient/Component = "Patient"
 s:Sc/FluenceAtPatient/OutputFile = "FluenceAtPatientByBinsTOPAS"
 s:Sc/FluenceAtPatient/IfOutputFileAlreadyExists = "Overwrite"
+sv:Sc/FluenceAtPatient/OnlyIncludeParticlesNamed = 1 "proton"
+s:Sc/FluenceAtPatient/OnlyIncludeParticlesOfGeneration = "Primary"
 #b:Sc/FluenceAtPatient/OutputToConsole = "True"
 
 s:Sc/EnergyFluenceAtPatient/Quantity = "EnergyFluence"
@@ -45,7 +62,8 @@ s:Sc/EnergyFluenceAtPatient/OutputType = "csv"
 s:Sc/EnergyFluenceAtPatient/IfOutputFileAlreadyExists = "Overwrite"
 #b:Sc/EnergyFluenceAtPatient/OutputToConsole = "TRUE"
 #b:Sc/EnergyFluenceAtPatient/Visualize = "TRUE"
-#sv:Sc/EnergyFluenceAtPatient/OnlyIncludeParticlesNamed = 1 "proton"
+sv:Sc/EnergyFluenceAtPatient/OnlyIncludeParticlesNamed = 1 "proton"
+s:Sc/EnergyFluenceAtPatient/OnlyIncludeParticlesOfGeneration = "Primary"
 
 ####################################################
 # Beam Source
@@ -67,7 +85,7 @@ s:So/MySource/BeamAngularDistribution = "None"
 s:So/MySource/BeamEnergySpectrumType = "Discrete"
 dv:So/MySource/BeamEnergySpectrumValues = 1 200 MeV
 uv:So/MySource/BeamEnergySpectrumWeights = 1 1.0
-i:So/MySource/NumberOfHistoriesInRun = 100000
+i:So/MySource/NumberOfHistoriesInRun = 10000000
 #i:So/MySource/NumberOfHistoriesInRandomJob = 0
 
 ####################################################
@@ -92,4 +110,4 @@ b:Ts/ShowCPUTime = "True"
 #b:Gr/MyOGL/CopyOpenGLToPDF = "TRUE"
 
 sv:Ph/Default/Modules = 1 "g4em-standard_opt0"
-# b:Ts/PauseBeforeQuit = "True"
+#b:Ts/PauseBeforeQuit = "True"

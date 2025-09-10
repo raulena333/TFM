@@ -8,11 +8,11 @@ import time
 
 # Matplotlib params
 params = {
-    'xtick.labelsize': 14,    
-    'ytick.labelsize': 14,      
-    'axes.titlesize': 14,
-    'axes.labelsize': 14,
-    'legend.fontsize': 14
+    'xtick.labelsize': 17,
+    'ytick.labelsize': 17,
+    'axes.titlesize': 17,
+    'axes.labelsize': 17,
+    'legend.fontsize': 12
 }
 pylab.rcParams.update(params)  # Apply changes
 
@@ -192,9 +192,9 @@ def calculateGammaIndex(
 # Main simulation function
 if __name__ == "__main__":
     # Define the paths to the CSV files
-    varTransPath ='./EnergyAtBoxByBinsMySimulationTrans.csv'
-    topasPath = './EnergyAtBoxByBinsTOPAS.csv'
-    normPath = './EnergyAtBoxByBinsMySimulationNorm.csv'
+    varTransPath ='../../Simulation/CSV/EnergyAtBoxByBinsMySimulation_transformation.csv'
+    topasPath = '../EnergyAtPatientByBinsTOPASHeteroGrid.csv'
+    normPath = '../../Simulation/CSVNormalized/EnergyAtBoxByBinsMySimulation_normalization.csv'
     
     energyTOPAS, energyTrans, energyNorm = readandProcessCSVFiles(topasPath, varTransPath, normPath)
     energyTrans = np.flip(energyTrans, axis=2)
@@ -213,12 +213,12 @@ if __name__ == "__main__":
     axes = (xCoords, yCoords, zCoords)
     
     # --- Gamma Calculation Parameters ---
-    ddPercent = 3.0  # 3% Dose Difference
-    dtaMm = 3.0      # 3mm Distance-to-Agreement
-    lowerCutoff = 10.0 # 10% lower dose cutoff
+    ddPercent = 2.0  # 2% Dose Difference
+    dtaMm = 1.0      # 1mm Distance-to-Agreement
+    lowerCutoff = 0.01 # 10% lower dose cutoff
 
     # --- Run pymedphys Gamma ---
-    gammaMapPymed, passRatePymed = calculateGammaIndex(
+    gammaMapPymed_trans, passRatePymed_trans = calculateGammaIndex(
         energyTOPAS=energyTOPAS,
         energyTrans=energyTrans,
         axes = axes,
@@ -230,46 +230,8 @@ if __name__ == "__main__":
         randomSubset = None,
         quiet = False
     )
-
-    # Optional: Visualize results if calculation succeeded
-    if gammaMapPymed is not None:
-        try:
-            sliceIdx = voxelBins[0] // 2
-            z_val = axes[0][sliceIdx]
-
-            fig, axs = plt.subplots(1, 3, figsize=(15, 5))
-
-            im0 = axs[0].imshow(energyTOPAS[sliceIdx, :, :], cmap='jet',
-                                    extent=[axes[2][0], axes[2][-1], axes[1][-1], axes[1][0]])
-            axs[0].set_title(f'Reference Dose (X={z_val:.1f} mm)')
-            fig.colorbar(im0, ax=axs[0], label='Dose')
-            axs[0].set_xlabel('Z (mm)')
-            axs[0].set_ylabel('Y (mm)')
-
-
-            im1 = axs[1].imshow(energyTrans[sliceIdx, :, :], cmap='jet',
-                                    extent=[axes[2][0], axes[2][-1], axes[1][-1], axes[1][0]])
-            axs[1].set_title(f'Evaluated Dose (X={z_val:.1f} mm)')
-            fig.colorbar(im1, ax=axs[1], label='Dose')
-            axs[1].set_xlabel('Z (mm)')
-            axs[1].set_ylabel('Y (mm)')
-
-            im2 = axs[2].imshow(gammaMapPymed[sliceIdx, :, :], cmap='coolwarm', vmin=0, vmax=2,
-                                    extent=[axes[2][0], axes[2][-1], axes[1][-1], axes[1][0]])
-            axs[2].set_title(f'Gamma Map (X={z_val:.1f} mm)')
-            fig.colorbar(im2, ax=axs[2], label='Gamma Index')
-            axs[2].set_xlabel('Z (mm)')
-            axs[2].set_ylabel('Y (mm)')
-
-            plt.suptitle(f'Gamma Analysis ({ddPercent}%/{dtaMm}mm), Pass Rate = {passRatePymed:.2f}%')
-            plt.tight_layout(rect=[0, 0.03, 1, 0.95]) 
-            plt.savefig(f'GammaAnalysisTrans_{ddPercent}_{dtaMm}.pdf', bbox_inches='tight')
-            plt.close()
-        except Exception as e:
-            print(f"\nAn error occurred during plotting: {e}")
-            
-                    
-    gammaMapPymed, passRatePymed = calculateGammaIndex(
+                       
+    gammaMapPymed_norm, passRatePymed_norm = calculateGammaIndex(
         energyTOPAS=energyTOPAS,
         energyTrans=energyNorm,
         axes = axes,
@@ -281,39 +243,46 @@ if __name__ == "__main__":
         randomSubset = None,
         quiet = False
     )
-    
-    if gammaMapPymed is not None:
-        try:
-            sliceIdx = voxelBins[0] // 2
-            z_val = axes[0][sliceIdx]
 
-            fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+# Flip gamma maps along Z axis after calculation for correct left-to-right plotting
+gammaMapPymed_trans = np.flip(gammaMapPymed_trans, axis=2)
+gammaMapPymed_norm = np.flip(gammaMapPymed_norm, axis=2)
 
-            im0 = axs[0].imshow(energyTOPAS[sliceIdx, :, :], cmap='jet',
-                                    extent=[axes[2][0], axes[2][-1], axes[1][-1], axes[1][0]])
-            axs[0].set_title(f'Reference Dose (X={z_val:.1f} mm)')
-            fig.colorbar(im0, ax=axs[0], label='Dose')
-            axs[0].set_xlabel('Z (mm)')
-            axs[0].set_ylabel('Y (mm)')
+# Plot middle slice for both gamma maps side by side with pass rates
+try:
+    sliceIdx = voxelBins[0] // 2  # middle slice in X
+    x_val = axes[0][sliceIdx]
 
+    fig, axs = plt.subplots(1, 2, figsize=(14, 6))
 
-            im1 = axs[1].imshow(energyNorm[sliceIdx, :, :], cmap='jet',
-                                    extent=[axes[2][0], axes[2][-1], axes[1][-1], axes[1][0]])
-            axs[1].set_title(f'Evaluated Dose (X={z_val:.1f} mm)')
-            fig.colorbar(im1, ax=axs[1], label='Dose')
-            axs[1].set_xlabel('Z (mm)')
-            axs[1].set_ylabel('Y (mm)')
+    # --- Transformation Gamma Map ---
+    im0 = axs[0].imshow(
+        gammaMapPymed_trans[sliceIdx, :, :], 
+        cmap='coolwarm', vmin=0, vmax=2,
+        extent=[axes[2][0], axes[2][-1], axes[1][0], axes[1][-1]],  # left-to-right
+        origin='lower'  # ensures lower Y is at bottom
+    )
+    axs[0].set_title(f'Transformation Gamma\nPass Rate: {passRatePymed_trans:.2f}% (X={x_val:.1f} mm)')
+    axs[0].set_xlabel('Z (mm)')
+    axs[0].set_ylabel('Y (mm)')
+    fig.colorbar(im0, ax=axs[0], label='Gamma Index')
 
-            im2 = axs[2].imshow(gammaMapPymed[sliceIdx, :, :], cmap='coolwarm', vmin=0, vmax=2,
-                                    extent=[axes[2][0], axes[2][-1], axes[1][-1], axes[1][0]])
-            axs[2].set_title(f'Gamma Map (X={z_val:.1f} mm)')
-            fig.colorbar(im2, ax=axs[2], label='Gamma Index')
-            axs[2].set_xlabel('Z (mm)')
-            axs[2].set_ylabel('Y (mm)')
+    # --- Normalization Gamma Map ---
+    im1 = axs[1].imshow(
+        gammaMapPymed_norm[sliceIdx, :, :], 
+        cmap='coolwarm', vmin=0, vmax=2,
+        extent=[axes[2][0], axes[2][-1], axes[1][0], axes[1][-1]],  # left-to-right
+        origin='lower'
+    )
+    axs[1].set_title(f'Normalization Gamma\nPass Rate: {passRatePymed_norm:.2f}% (X={x_val:.1f} mm)')
+    axs[1].set_xlabel('Z (mm)')
+    axs[1].set_ylabel('Y (mm)')
+    fig.colorbar(im1, ax=axs[1], label='Gamma Index')
 
-            plt.suptitle(f'Gamma Analysis ({ddPercent}%/{dtaMm}mm), Pass Rate = {passRatePymed:.2f}%')
-            plt.tight_layout(rect=[0, 0.03, 1, 0.95]) 
-            plt.savefig(f'GammaAnalysisNorm_{ddPercent}_{dtaMm}.pdf', bbox_inches='tight')
-            plt.close()
-        except Exception as e:
-            print(f"\nAn error occurred during plotting: {e}")
+    # plt.suptitle(f'Gamma Analysis Comparison ({ddPercent}% / {dtaMm} mm)', fontsize=16)
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.savefig(f'GammaAnalysis_Comparison_{ddPercent}_{dtaMm}.pdf', bbox_inches='tight')
+    plt.close()
+
+except Exception as e:
+    print(f"An error occurred during plotting: {e}")

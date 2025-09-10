@@ -1,23 +1,28 @@
 import numpy as np
 import matplotlib.pylab as pylab
-import matplotlib.pyplot as plt
 import time
 import argparse
 from tqdm import tqdm
-from multiprocessing import Pool, cpu_count, shared_memory
+from multiprocessing import shared_memory
 import os
-import csv
-from numba import prange
 import numba
 import faulthandler
 from typing import Tuple
 from pathlib import Path
-import seaborn as sns
 
-np.set_printoptions(precision=6, suppress=True)
+import cProfile
+import pstats
 
-samplerCache = {}
 faulthandler.enable()
+
+# pyinstrument --html -o profile_report.html SimulationTime.py --transformation
+# xdg-open report.html  
+# chromium report.html
+
+# python3 -m cProfile -o simulationProfile.out SimulationTime.py
+# snakeviz simulationProfile_transformation.out
+
+# scalene --html your_script.py
 
 # Plot styling
 params = {
@@ -55,30 +60,6 @@ class BinningConfig:
         return self.binEdges, self.angleStep, self.energyStep
 
 # --------------- TRANSFORMATION VARIABLE ---------------
-# This class represents a histogram sampler for sampling angles and energies based on a given histogram.
-# It initializes with a histogram, calculates the cumulative distribution function (CDF), and provides a method to sample angles and energies.
-class HistogramSampler:
-
-    def __init__(self, hist : np.ndarray, rng=None):
-        self.hist = hist
-        self.angleBins, self.energyBins = hist.shape
-        self.rng = rng or np.random.default_rng()
-
-        self.flatHist = hist.flatten()
-        self.cumsum = np.cumsum(self.flatHist)
-        self.cumsum /= self.cumsum[-1] 
-        
-    def sample(self, size=1) -> Tuple[np.ndarray, np.ndarray]:
-        randValues = self.rng.random(size)
-        idxs = np.searchsorted(self.cumsum, randValues, side='right')
-        angleIdxs, energyIdxs = np.unravel_index(idxs, (self.angleBins, self.energyBins))
-
-        # Use global binning config
-        angles = binningConfig.angleEdges[angleIdxs] + 0.5 * binningConfig.angleStep
-        energies = binningConfig.energyEdges[energyIdxs] + 0.5 * binningConfig.energyStep
-
-        return angles, energies
-
 @numba.jit(parallel=True)
 def buildCdfsFromProbTable(probTable):
     numMaterials, numEnergies, angleBins, energyBins = probTable.shape
@@ -106,21 +87,6 @@ def buildCdfsFromProbTable(probTable):
 
     return cdfs
 
-# --------------- TRANSFORMATION VARIABLE --------------
-def prebuildSamplers(data : dict, angleRange : tuple, energyRange : tuple, materialToIndex : dict):
-    global samplerCache, binningConfig
-
-    # Create global binning config
-    angleBins, energyBins = data['probTable'].shape[2:]
-    binningConfig = BinningConfig(angleRange, energyRange, angleBins, energyBins)
-
-    for materialIdx in materialToIndex.values():
-        for energyIdx in range(len(data['energies'])):
-            cacheKey = (materialIdx, energyIdx)
-            if cacheKey not in samplerCache:
-                hist = data['probTable'][materialIdx, energyIdx]
-                samplerCache[cacheKey] = HistogramSampler(hist)
-                
 # --------------- TRANSFORMATION VARIABLE --------------
 @numba.jit(nopython=True, inline = 'always') 
 def reverseVariableChangeTransform(initialEnergies, angles, energies):
@@ -194,7 +160,7 @@ def sampleFromCDFVectorizedTransformation(data: dict, materials: np.ndarray, ene
             #print('survivalProb', survivalProb)
             
             survived[particleIndices] = randVals[maskUnique] < survivalProb
-    
+            
     sampledMask = survived     
     if np.any(sampledMask):  
         # Use roundedEnergies filtered to sampleMask only
@@ -442,7 +408,7 @@ def sampleCDFForEnergyGroup(materialIdx, energyIdx, sampleIndices, randValues, c
             flatIdx = cdf.size - 1
 
         angleIdx = flatIdx // energyBins
-        energyIdxLocal = flatIdx % angleBins
+        energyIdxLocal = flatIdx % energyBins
 
         angle = angleEdges[angleIdx] + 0.5 * angleStep
         energy = energyEdges[energyIdxLocal] + 0.5 * energyStep
@@ -450,6 +416,15 @@ def sampleCDFForEnergyGroup(materialIdx, energyIdx, sampleIndices, randValues, c
         sampledAngles[idx] = angle
         sampledEnergies[idx] = energy
         
+# --------------- COMMON FUNCTIONS ---------------
+def createPhysicalSpace(bigVoxel : tuple,  voxelShapeBins : tuple, 
+        dt = 1 / 3) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    xRange = np.linspace(-bigVoxel[0] / dt, bigVoxel[0] / dt, voxelShapeBins[0]) 
+    yRange = np.linspace(-bigVoxel[1] / dt, bigVoxel[1] / dt, voxelShapeBins[1])
+    zRange = np.linspace(-bigVoxel[2] / dt, bigVoxel[2] / dt, voxelShapeBins[2])
+    
+    return xRange, yRange, zRange
+
 # --------------- COMMON FUNCTIONS ---------------
 @numba.jit(nopython=True, fastmath=True)
 def dda3dStepTraversal(initialPositions,
@@ -486,7 +461,7 @@ def dda3dStepTraversal(initialPositions,
 
         # Get initial voxel index:
         voxelIndx = getVoxelIndex(pos, physicalSize, gridShape)
-        print(f'Voxel index for particle {i}:', voxelIndx)
+        # print(f'Voxel index for particle {i}:', voxelIndx)
         voxel = np.empty(3, dtype=np.int32)
         voxel[0], voxel[1], voxel[2] = voxelIndx[0], voxelIndx[1], voxelIndx[2]
         
@@ -557,15 +532,6 @@ def dda3dStepTraversal(initialPositions,
         segmentCounts[i] = count
 
     return materialIndices, segmentLengths, segmentCounts
-        
-# --------------- COMMON FUNCTIONS ---------------
-def createPhysicalSpace(bigVoxel : tuple,  voxelShapeBins : tuple, 
-        dt = 1 / 3) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    xRange = np.linspace(-bigVoxel[0] / dt, bigVoxel[0] / dt, voxelShapeBins[0]) 
-    yRange = np.linspace(-bigVoxel[1] / dt, bigVoxel[1] / dt, voxelShapeBins[1])
-    zRange = np.linspace(-bigVoxel[2] / dt, bigVoxel[2] / dt, voxelShapeBins[2])
-    
-    return xRange, yRange, zRange
 
 # --------------- COMMON FUNCTIONS ---------------
 @numba.jit(nopython=True)
@@ -621,7 +587,8 @@ def sampleFromCDF(
         )
     else:
         raise ValueError(f"Unknown sampling method: {method}")
-
+    
+# --------------- COMMON FUNCTIONS ---------------
 def scatteringStepMaterial(
     initialPositions,
     directions,
@@ -681,13 +648,13 @@ def scatteringStepMaterial(
         velocity=directions,
         realAngles=sampleAngles
     )
-    #print('New directions:\n', newDirections)
+    # print('New directions:\n', newDirections)
 
     # Get material indices, segment lengths, segment counts, and voxel indices
     # for each particle we take the initial direction and position
     dda3dStepTraversal(
         initialPositions=initialPositions,
-        directions=directions,
+        directions= newDirections,
         grid=grid,
         gridShape=gridShape,
         physicalSize=physicalSize,
@@ -719,9 +686,7 @@ def scatteringStepMaterial(
     if np.any(stayedSingleMaterial):
         singleIndices = np.where(stayedSingleMaterial)[0]
 
-        actualStepLength = np.sum(segmentLengths[singleIndices], axis=1)
-        #print('Actual step lengths for single material particles:', actualStepLength)
-        newPositions[singleIndices] += (actualStepLength[:, None] * newDirections[singleIndices])
+        newPositions[singleIndices] += stepLength * newDirections[singleIndices]
         newPositions[singleIndices] = np.round(newPositions[singleIndices], decimals=5)
         #print('New positions:', newPositions[singleIndices])
 
@@ -813,8 +778,8 @@ def depositEnergy3DStepTraversal(
             continue
 
         # eInstant = initialEnergies[i]
-        # eMid = initialEnergies[i] - 0.5 * energyLossPerStep[i]
-        eMid = initialEnergies[i] - 0.25 * energyLossPerStep[i]
+        eMid = initialEnergies[i] - 0.5 * energyLossPerStep[i]
+        #eMid = initialEnergies[i] - 0.25 * energyLossPerStep[i]
         for j in range(count):
             frac = segmentLengths[i, j] * inverseStepLength
             deposit = frac * energyLossPerStep[i]
@@ -827,7 +792,7 @@ def depositEnergy3DStepTraversal(
 
             #print(f'Depositing energy: {deposit} at voxel ({x}, {y}, {z})')
             #print(f'Fluence: segment length: {segmentLengths[i,j]} at voxel ({x}, {y}, {z})')
-            #print(f'Energy fluence: {segmentLengths[i,j] * eInstant} at voxel ({x}, {y}, {z})')
+            #print(f'Energy fluence: {segmentLengths[i,j] * eMid} at voxel ({x}, {y}, {z})')
             
 
 # --------------- COMMON FUNCTIONS ---------------
@@ -843,7 +808,7 @@ def simulateBatchParticlesVectorized(
     gridShape = np.array(gridMap.shape)
     
     # Random -10 mm to +10 mm in X and Y axis
-    initialZ = -1.5  # Initial position in mm
+    initialZ = -150.  # Initial position in mm
     xyRange = 0.  # Half-width in mm (so total 50 mm x 50 mm field)
     
     # Generate uniform random positions in X and Y 
@@ -857,10 +822,6 @@ def simulateBatchParticlesVectorized(
     active = np.ones(batchSize, dtype=bool)
     # print(f'Initial Energy: {initialEnergy} MeV')
     # print(f'Initial Position: {position}')
-    
-    # List to store (exit angle, energy) for particles exiting the grid
-    exitAngles = np.full(batchSize, np.nan) 
-    exitEnergies = np.full(batchSize, np.nan)
 
     zStep = 1.0  # Fixed step of 1 mm
     while np.any(active):
@@ -885,35 +846,14 @@ def simulateBatchParticlesVectorized(
             energyStep=energyStep,
             stepLength=zStep   
         )
-        # print(f'Updated positions:\n{position[active]}')
-        # print(f'Updated energies:\n{energy[active]}')
         
         # Check if particles are still active
         withinBounds = np.all(
             (position[active] >= -bigVoxelSize) & (position[active] < bigVoxelSize),
             axis=1
         )
-        realEnergiesValid = energy[active] > 0.0
-        
-        # Determine global indices of active particles
-        activeIndices = np.where(active)[0]
-        
-        # Find those that exited (either out of bounds or energy ≤ 0)
-        exitedMask = ~withinBounds & realEnergiesValid
-        exitedIndices = activeIndices[exitedMask]
-
-        # Store exit angle and energy
-        if exitedIndices.size > 0:
-            vz = velocity[active][exitedMask][:, 2]
-            vz = np.clip(vz, -1.0, 1.0)  # Safety for arccos
-            exitAngles[exitedIndices] = np.degrees(np.arccos(vz))
-            exitEnergies[exitedIndices] = energy[active][exitedMask]
-
-        # Update active status
+        realEnergiesValid = energy[active] > 0
         active[active] = realEnergiesValid & withinBounds
-
-    return exitAngles, exitEnergies
-        
 
        
 # --------------- COMMON FUNCTIONS ---------------
@@ -993,11 +933,10 @@ def quadraticInterpolation(x_1, y_1, x0, y0, x1, y1, x):
 def linearInterpolation(x0, y0, x1, y1, x):
     return y0 + (y1 - y0) * ((x - x0) / (x1 - x0))
 
-        
 # --------------- COMMON FUNCTIONS ---------------
 def simulateBatchParticlesWorker(args):
-    method = args[29] 
-    batchID = args[30]
+    method = args[23] 
+    batchID = args[24]
     
     # Common extraction for all methods
     (
@@ -1006,12 +945,10 @@ def simulateBatchParticlesWorker(args):
         shm_energy_deposited_name, energy_deposited_shape, energy_deposited_dtype_str,
         shm_fluence_name, fluence_shape, fluence_dtype_str,
         shm_energy_fluence_name, energy_fluence_shape, energy_fluence_dtype_str,
-        shm_exit_angles_name, exit_angles_shape, exit_angles_dtype_str,
-        shm_exit_energies_name, exit_energies_shape, exit_energies_dtype_str,
         batchSize, materials, energies, escapeProbs,
         gridMaterial, initialEnergy,
         bigVoxelSize, seed, _, _  # method and batchID are already extracted
-    ) = args[:31]
+    ) = args[:25]
 
     # Default to None (for both methods)
     binEdges = angleStep = energyStep = None
@@ -1021,12 +958,12 @@ def simulateBatchParticlesWorker(args):
     if method == 'normalization':
         (
             shm_bin_edges_name, bin_edges_shape, bin_edges_dtype_str
-        ) = args[31:]
+        ) = args[25:]
 
     elif method == 'transformation':
         (
             binEdges, angleStep, energyStep
-        ) = args[31:]
+        ) = args[25:]
 
     else:
         raise ValueError(f"Unknown sampling method: {method}")
@@ -1052,13 +989,6 @@ def simulateBatchParticlesWorker(args):
     
     existing_shm_energy_fluence = shared_memory.SharedMemory(name=shm_energy_fluence_name)
     shared_energyFluence = np.ndarray(energy_fluence_shape, dtype=np.dtype(energy_fluence_dtype_str), buffer=existing_shm_energy_fluence.buf)
-    
-    # Attach to shared memory for exit angles and energies
-    existing_shm_exit_angles = shared_memory.SharedMemory(name=shm_exit_angles_name)
-    shared_exit_angles = np.ndarray(exit_angles_shape, dtype=np.dtype(exit_angles_dtype_str), buffer=existing_shm_exit_angles.buf)
-
-    existing_shm_exit_energies = shared_memory.SharedMemory(name=shm_exit_energies_name)    
-    shared_exit_energies = np.ndarray(exit_energies_shape, dtype=np.dtype(exit_energies_dtype_str), buffer=existing_shm_exit_energies.buf)
 
     if method == 'normalization':
         existing_shm_bin_edges = shared_memory.SharedMemory(name=shm_bin_edges_name)
@@ -1099,256 +1029,28 @@ def simulateBatchParticlesWorker(args):
     np.add(shared_fluence, localFluence, out=shared_fluence)
     np.add(shared_energyFluence, localEnergyFluence, out=shared_energyFluence)
     
-    # Calculate global start/end indices for this batch's particles
-    startIdx = batchID * batchSize
-    endIdx = startIdx + batchSize
-    
-    # Save exit angles and energies in shared arrays at the right positions
-    exitAngles, exitEnergies = result  # unpack tuple
-    shared_exit_angles[startIdx:endIdx] = exitAngles
-    shared_exit_energies[startIdx:endIdx] = exitEnergies
-    
     # Optional: logging
     totalEnergy = np.sum(localEnergyDeposited)
     with open(f"logs{method}.txt", "a") as log_file:
-        log_file.write(f"Batch {batchID:04d} | Deposited Energy: {totalEnergy:.2f} MeV\n")
+        log_file.write(f"Batch {batchID:04d} | Deposited Energy: {totalEnergy:.2f} MeV \n")
 
     return result
-
-# --------------- COMMON FUNCTIONS ---------------
-def runMultiprocessedBatchedSim(
-    totalSamples, batchSize, numWorkers,
-    shm_prob_table, prob_table_shape, prob_table_dtype,
-    shm_cdfs, cdfs_shape, cdfs_dtype,
-    shm_energy_deposited, energy_deposited_shape, energy_deposited_dtype,
-    shm_fluence, fluence_shape, fluence_dtype,
-    shm_energy_fluence, energy_fluence_shape, energy_fluence_dtype,
-    shm_exit_angles, exit_angles_shape, exit_angles_dtype,
-    shm_exit_energies, exit_energies_shape, exit_energies_dtype,
-    data, gridMaterial, initialEnergy, 
-    bigVoxelSize, method = 'transformation',
-    #Optional for transformation
-    binEdges = None, angleStep = None, energyStep = None,
-    # Optional shared memory for normalization
-    shm_bin_edges = None, bin_edges_shape = None, bin_edges_dtype = None,
-):
     
-    # Safety checks
-    if method == 'normalization':
-        assert shm_bin_edges is not None, "shm_bin_edges is required for normalization method."
-        assert bin_edges_shape is not None, "bin_edges_shape is required for normalization method."
-        assert bin_edges_dtype is not None, "bin_edges_dtype is required for normalization method."
-
-    elif method == 'transformation':
-        assert binEdges is not None, "binEdges is required for transformation method."
-        assert angleStep is not None, "angleStep is required for transformation method."
-        assert energyStep is not None, "energyStep is required for transformation method."
-
-    else:
-        raise ValueError(f"Unsupported sampling method: {method}")
-    
-    # Number of batches to process
-    numBatches = (totalSamples + batchSize - 1) // batchSize
-    argsList = []
-    
-    baseSeed = 456789
-    seedSequence = np.random.SeedSequence(baseSeed)
-    childSeeds = seedSequence.spawn(numBatches)
-    
-    # Create a list of arguments for each worker with chunked tasks
-    for i in range(numBatches):
-        currentSeed = childSeeds[i].generate_state(1)[0]
-        
-        args = [
-            shm_prob_table.name, prob_table_shape, prob_table_dtype.name,
-            shm_cdfs.name, cdfs_shape, cdfs_dtype.name,
-            shm_energy_deposited.name, energy_deposited_shape, energy_deposited_dtype.name,
-            shm_fluence.name, fluence_shape, fluence_dtype.name,
-            shm_energy_fluence.name, energy_fluence_shape, energy_fluence_dtype.name,
-            shm_exit_angles.name, exit_angles_shape, exit_angles_dtype.name,
-            shm_exit_energies.name, exit_energies_shape, exit_energies_dtype.name,
-            min(batchSize, totalSamples - i * batchSize),
-            data['materials'], data['energies'], data['escapeProbs'],
-            gridMaterial, initialEnergy,
-            bigVoxelSize, currentSeed, # seed for each batch, reproducible
-            method,
-            i # batch index
-        ]
-
-        if method == 'normalization':
-            args.extend([
-                shm_bin_edges.name, bin_edges_shape, bin_edges_dtype.name
-            ])
-        elif method == 'transformation':
-            args.extend([
-                binEdges, angleStep, energyStep      
-            ])
-
-        argsList.append(tuple(args))
-            
-    # chunkSize = max(1, len(argsList) // (numWorkers * 4)) 
-    chunkSize = 1
-    with Pool(processes=numWorkers) as pool:
-        list(tqdm(pool.imap_unordered(simulateBatchParticlesWorker, argsList, chunksize=chunkSize), total=len(argsList)))
     
 # --------------- COMMON FUNCTIONS ---------------
-def createSharedMemory(arr : np.ndarray) -> tuple:    
+def createSharedMemory(arr : np.ndarray) -> tuple:
     shm = shared_memory.SharedMemory(create=True, size=arr.nbytes)
     shm_np = np.ndarray(arr.shape, dtype=arr.dtype, buffer=shm.buf)
     np.copyto(shm_np, arr)
     return shm, arr.shape, arr.dtype
 
-def sampleAndPlotSingleEnergy(
-    data,
-    cdfs,
-    binEdges,
-    method,
-    materialIndex,
-    energy,
-    saveFig = False,
-    numSamples=100_000,
-    angleStep=None,
-    energyStep=None,
-    ):
-    # Create input arrays
-    materials = np.full(numSamples, materialIndex, dtype=int)
-    energies = np.full(numSamples, energy, dtype=float)
-
-    # Sample angles and energy losses
-    sampledAngles, sampledEnergies = sampleFromCDF(
-        data=data,
-        materialsIndex=materials,
-        energies=energies,
-        cdfs=cdfs,
-        binEdges=binEdges,
-        method=method,
-        angleStep=angleStep,
-        energyStep=energyStep
-    )   
-
-    # --- ANGLE HISTOGRAM ---
-    angleHist, angleBins = np.histogram(sampledAngles, bins=100)
-    angleCenters = 0.5 * (angleBins[:-1] + angleBins[1:])
-    angleHistNorm = angleHist / np.max(angleHist)
-
-    # Threshold: 1/100 of the max
-    threshold = 1 / 100
-    aboveThreshold = np.where(angleHistNorm <= threshold)[0]
-    if len(aboveThreshold) > 0:
-        thresholdAngle = angleCenters[aboveThreshold[0]]
-    else:
-        thresholdAngle = None
-
-    plt.figure(figsize=(7.25, 6))
-    plt.plot(angleCenters, angleHistNorm, color='darkred')
-    plt.xlabel("Angle (º)")
-    plt.ylabel("Normalized Frequency (max=1)")
-    plt.title(f"Angle Sampling - Material {materialIndex}, E = {energy} MeV, Method: {method}")
-    if thresholdAngle is not None:
-        plt.axvline(thresholdAngle, color='blue', linestyle='--', label=f"1% max at {thresholdAngle:.2f}°", linewidth=0.5)
-        plt.legend()
-    plt.tight_layout()
-    if saveFig:
-        plt.savefig(f"SamplingAnglesNorm{method}_G{materialIndex}_ENERGY{energy}.pdf")
-    plt.close()
-
-    # --- ENERGY HISTOGRAM ---
-    energyHist, energyBins = np.histogram(sampledEnergies, bins=100)
-    energyCenters = 0.5 * (energyBins[:-1] + energyBins[1:])
-    energyHistNorm = energyHist / np.max(energyHist)
-
-    aboveThresholdE = np.where(energyHistNorm <= threshold)[0]
-    if len(aboveThresholdE) > 0:
-        thresholdEnergy = energyCenters[aboveThresholdE[0]]
-    else:
-        thresholdEnergy = None
-
-    plt.figure(figsize=(7.25, 6))
-    plt.plot(energyCenters, energyHistNorm, color='darkred')
-    plt.xlabel("Final energy (MeV)")
-    plt.ylabel("Normalized Frequency (max=1)")
-    plt.title(f"Energy Sampling - Material {materialIndex}, E = {energy} MeV, Method: {method}")
-    if thresholdEnergy is not None:
-        plt.axvline(thresholdEnergy, color='blue', linestyle='--', label=f"1% max at {thresholdEnergy:.2f} MeV", linewidth=0.5)
-        plt.legend()
-    plt.tight_layout()
-    if saveFig:
-        plt.savefig(f"SamplingEnergyNorm{method}_G{materialIndex}_ENERGY{energy}.pdf")
-    plt.close()
-
-    # --- STATISTICS ---
-    print(f'Mean energy: {np.mean(sampledEnergies):.4f}')
-    print(f'Std energy:  {np.std(sampledEnergies):.4f}')
-    print(f'Mean angle:  {np.mean(sampledAngles):.4f}')
-    print(f'Std angle:   {np.std(sampledAngles):.4f}')
-    if thresholdAngle is not None:
-        print(f"Angle at which freq drops to 1%: {thresholdAngle:.2f}°")
-    if thresholdEnergy is not None:
-        print(f"Energy at which freq drops to 1%: {thresholdEnergy:.2f} MeV")
-
-def plotExitAngleEnergyHistograms(
-    sampledAngles,
-    sampledEnergies,
-    energy,
-    method,
-    numberOfBins,
-    threshold=0.01,
-    saveFig=True
-):
-    # --- ANGLE HISTOGRAM ---
-    angleHist, angleBins = np.histogram(sampledAngles, bins=numberOfBins)
-    angleCenters = 0.5 * (angleBins[:-1] + angleBins[1:])
-    angleHistNorm = angleHist / np.max(angleHist)
-
-    aboveThresholdAngle = np.where(angleHistNorm <= threshold)[0]
-    thresholdAngle = angleCenters[aboveThresholdAngle[0]] if len(aboveThresholdAngle) > 0 else None
-
-    plt.figure(figsize=(7.25, 6))
-    plt.plot(angleCenters, angleHistNorm, color='darkred')
-    plt.xlabel("Angle (º)")
-    plt.ylabel("Normalized Frequency (max=1)")
-    plt.title(f"Angle Sampling - E = {energy} MeV, Method: {method}")
-    if thresholdAngle is not None:
-        plt.axvline(thresholdAngle, color='blue', linestyle='--', label=f"1% max at {thresholdAngle:.2f}°", linewidth=0.5)
-        plt.legend()
-    plt.tight_layout()
-    if saveFig:
-        plt.savefig(f"SamplingAnglesNorm{method}_ENERGY{energy}.pdf")
-    plt.close()
-
-    # --- ENERGY HISTOGRAM ---
-    energyHist, energyBins = np.histogram(sampledEnergies, bins=numberOfBins)
-    energyCenters = 0.5 * (energyBins[:-1] + energyBins[1:])
-    energyHistNorm = energyHist / np.max(energyHist)
-
-    aboveThresholdEnergy = np.where(energyHistNorm <= threshold)[0]
-    thresholdEnergy = energyCenters[aboveThresholdEnergy[0]] if len(aboveThresholdEnergy) > 0 else None
-
-    plt.figure(figsize=(7.25, 6))
-    plt.plot(energyCenters, energyHistNorm, color='darkred')
-    plt.xlabel("Final energy (MeV)")
-    plt.ylabel("Normalized Frequency (max=1)")
-    plt.title(f"Energy Sampling - E = {energy} MeV, Method: {method}")
-    if thresholdEnergy is not None:
-        plt.axvline(thresholdEnergy, color='blue', linestyle='--', label=f"1% max at {thresholdEnergy:.2f} MeV", linewidth=0.5)
-        plt.legend()
-    plt.tight_layout()
-    if saveFig:
-        plt.savefig(f"SamplingEnergyNorm{method}_ENERGY{energy}.pdf")
-    plt.close()
-
-    # --- STATISTICS ---
-    print(f'Mean energy: {np.mean(sampledEnergies):.4f}')
-    print(f'Std energy:  {np.std(sampledEnergies):.4f}')
-    print(f'Mean angle:  {np.mean(sampledAngles):.4f}')
-    print(f'Std angle:   {np.std(sampledAngles):.4f}')
-    if thresholdAngle is not None:
-        print(f"Angle at which freq drops to 1%: {thresholdAngle:.2f}°")
-    if thresholdEnergy is not None:
-        print(f"Energy at which freq drops to 1%: {thresholdEnergy:.2f} MeV")
-
 # --------------- MAIN FUNCTION ----------------
-if __name__ == "__main__":
+if __name__ == "__main__": 
+        
+    # Profile the single batch run
+    profiler = cProfile.Profile()
+    profiler.enable()
+    
     # Parse command line arguments
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group(required=True)
@@ -1362,17 +1064,17 @@ if __name__ == "__main__":
     startTime = time.time()
     
     # Shared settings
-    samplingN = 1
-    initialEnergy = 50.  # MeV
-    bigVoxelSize = np.array((0.5, 0.5, 1.5), dtype=np.float32) # in mm
-    voxelShapeBins = np.array((1, 1, 3), dtype=np.int32)
+    samplingN = 10_000_000  # Total number of samples
+    initialEnergy = 200.  # MeV
+    bigVoxelSize = np.array((100, 100, 150.), dtype=np.float32) # in mm
+    voxelShapeBins = np.array((50, 50, 300), dtype=np.int32)
     voxelSize = 2 * bigVoxelSize / voxelShapeBins # in mm 
     
-    angleRange = (0, 200)
+    angleRange = (0, 70)
     energyRange = (-0.6, 0)
     angleBins = 100
     energyBins = 100
-    
+
     # Load grid of heterogeneous materials
     gridMaterial = np.zeros((voxelShapeBins[0], voxelShapeBins[1], voxelShapeBins[2]), dtype=np.int32)
     gridPath = '../TableMaterials/materialGrid.npy'
@@ -1443,8 +1145,8 @@ if __name__ == "__main__":
             del data[key]
     else:
         cdfs = buildCdfsFromProbTable(probTable)
-
-    # Shared memory for probability table and CDFs
+    
+    # Shared memory
     energyDeposited = np.zeros(voxelShapeBins, dtype=np.float32)
     shm_prob_table, prob_table_shape, prob_table_dtype = createSharedMemory(probTable)
     shm_cdfs, cdfs_shape, cdfs_dtype = createSharedMemory(cdfs)
@@ -1456,20 +1158,15 @@ if __name__ == "__main__":
     shm_fluence, fluence_shape, fluence_dtype = createSharedMemory(fluence)
     shm_energy_fluence, energyFluence_shape, energyFluence_dtype = createSharedMemory(energyFluence)
     
-    # Shared memory for exit angles and energies
-    exitAngles = np.full((samplingN,), np.nan, dtype=np.float32)
-    exitEnergies = np.full((samplingN,), np.nan, dtype=np.float32)
-    shm_exit_angles, exit_angles_shape, exit_angles_dtype = createSharedMemory(exitAngles)
-    shm_exit_energies, exit_energies_shape, exit_energies_dtype = createSharedMemory(exitEnergies)
-    
     batchSize = 10_000
-    numWorkers = cpu_count()
+    seed = 1234564
+    batchID = 0
     
     kwargs = {}
     
     if method == 'normalization': 
         # Create shared memories
-        shm_bin_edges, bin_edges_shape, bin_edges_type= createSharedMemory(binEdges)
+        shm_bin_edges, bin_edges_shape, bin_edges_type = createSharedMemory(binEdges)
         
         kwargs.update(dict(
             shm_bin_edges = shm_bin_edges,
@@ -1486,120 +1183,65 @@ if __name__ == "__main__":
             angleStep=angleStep,
             energyStep=energyStep
     ))  
-        
-    # sampleAndPlotSingleEnergy(
-    #     data=data,
-    #     cdfs=cdfs,
-    #     binEdges=binEdges,
-    #     method=method,
-    #     materialIndex=0,  # Example material index
-    #     energy=initialEnergy,  # Example energy
-    #     saveFig=True,  # Save the plots
-    #     numSamples=10_000_000  # Number of samples for plotting
-    # )
-        
-    # Run simulation
+
     print(f"Running simulation using '{method}' method.")
-    print(f"Characteristics of the simulation:")
-    print(f"Voxel size: {voxelSize[0]} x {voxelSize[1]} x {voxelSize[2]} mm")
-    print(f"Voxel shape bins: {voxelShapeBins[0]} x {voxelShapeBins[1]} x {voxelShapeBins[2]}")
-    print(f"Number of workers: {numWorkers}")
-    print(f"Batch size: {batchSize}")
-    print(f"Number of sampling points: {samplingN}")
 
-    runMultiprocessedBatchedSim(
-        samplingN, batchSize, numWorkers,
-        shm_prob_table, prob_table_shape, prob_table_dtype,
-        shm_cdfs, cdfs_shape, cdfs_dtype,
-        shm_energy_deposited, energyDeposited_shape, energyDeposited_dtype,
-        shm_fluence, fluence_shape, fluence_dtype,
-        shm_energy_fluence, energyFluence_shape, energyFluence_dtype,
-        shm_exit_angles, exit_angles_shape, exit_angles_dtype,
-        shm_exit_energies, exit_energies_shape, exit_energies_dtype,
-        data, gridMaterial, initialEnergy,
-        bigVoxelSize, method, 
-        **kwargs
-    )
-                    
-    energyVector3D = np.ndarray(energyDeposited.shape, dtype=energyDeposited.dtype, buffer=shm_energy_deposited.buf).copy()
-    np.save(Path(npyPath) / f'energyDeposited{method}.npy', energyVector3D)
-    
-    # Make a copy of exit angles and energies
-    exitAnglesVector = np.ndarray(exitAngles.shape, dtype=exitAngles.dtype, buffer=shm_exit_angles.buf).copy()
-    exitEnergiesVector = np.ndarray(exitEnergies.shape, dtype=exitEnergies.dtype, buffer=shm_exit_energies.buf).copy()
-    plotExitAngleEnergyHistograms(
-        sampledAngles=exitAnglesVector,
-        sampledEnergies=exitEnergiesVector,
-        energy=initialEnergy,
-        method=method,
-        numberOfBins=angleBins
-    )
+    # Build args list depending on method
+    if method == 'normalization':
+        args = [
+            shm_prob_table.name, prob_table_shape, prob_table_dtype.name,
+            shm_cdfs.name, cdfs_shape, cdfs_dtype.name,
+            shm_energy_deposited.name, energyDeposited_shape, energyDeposited_dtype.name,
+            shm_fluence.name, fluence_shape, fluence_dtype.name,
+            shm_energy_fluence.name, energyFluence_shape, energyFluence_dtype.name,
+            batchSize, data["materials"], data["energies"], data["escapeProbs"],
+            gridMaterial, initialEnergy,
+            bigVoxelSize, seed,
+            method, batchID,
+            kwargs['shm_bin_edges'].name, kwargs['bin_edges_shape'], kwargs['bin_edges_dtype']
+        ]
+    else:  # transformation
+        args = [
+            shm_prob_table.name, prob_table_shape, prob_table_dtype.name,
+            shm_cdfs.name, cdfs_shape, cdfs_dtype.name,
+            shm_energy_deposited.name, energyDeposited_shape, energyDeposited_dtype.name,
+            shm_fluence.name, fluence_shape, fluence_dtype.name,
+            shm_energy_fluence.name, energyFluence_shape, energyFluence_dtype.name,
+            batchSize, data["materials"], data["energies"], data["escapeProbs"],
+            gridMaterial, initialEnergy,
+            bigVoxelSize, seed,
+            method, batchID,
+            kwargs['binEdges'], kwargs['angleStep'], kwargs['energyStep']
+        ]
 
-    # First same units than topas
-    # Fluence 1 / mm^2, energyFluence MeV / mm^2
-    volumeVoxel = voxelSize[0] * voxelSize[1] * voxelSize[2]
-    fluenceVector3D = np.ndarray(fluence.shape, dtype=fluence.dtype, buffer=shm_fluence.buf).copy()
-    fluenceVector3D = fluenceVector3D / volumeVoxel
+    # Call worker function directly for a single batch run
+    simulateBatchParticlesWorker(tuple(args))
+        
+    pathProfile = f'./TimeProfiles/'
+    Path(pathProfile).mkdir(parents=True, exist_ok=True)
     
-    energyFluenceVector3D = np.ndarray(energyFluence.shape, dtype=energyFluence.dtype, buffer=shm_energy_fluence.buf).copy()
-    energyFluenceVector3D = energyFluenceVector3D / volumeVoxel
+    profiler.disable()
+    profiler.dump_stats(f'{pathProfile}simulationProfile_{method}_{batchSize}_sphere.out')
+    # Print profiling stats sorted by cumulative time
+    stats = pstats.Stats(profiler).sort_stats('cumulative')
+    stats.sort_stats('cumulative').print_stats(10)  # Top 10 by cumulative time
+    stats.sort_stats('tottime').print_stats(10)     # Top 10 by internal time
+    stats.sort_stats('calls').print_stats(10)       # Top 10 by call count
     
-    fluenceThreshold = 1e-6
-    mask = fluenceVector3D > fluenceThreshold
-    meanEnergyGrid = np.zeros_like(fluenceVector3D)
-    meanEnergyGrid[mask] = energyFluenceVector3D[mask] / fluenceVector3D[mask]
-    # profileZMean = meanEnergyGrid[:, 5, 0]
-    # print(profileZMean)
-    
-    np.save(Path(npyPath) / f'meanEnergyGrid{method}.npy', meanEnergyGrid)
-         
-    totalEnergy = energyVector3D.sum()
-    print(f"Total energy: {totalEnergy:.6f} MeV")
-    fileforEnergyDeposit = f"{csvPath}EnergyAtBoxByBinsMySimulation_{method}.csv"
-    with open(fileforEnergyDeposit, 'w', newline='') as file:
-        # Write the header manually with #
-        file.write(
-                "# Simulation Version: 4.\n"
-                "# Results for scorer: EnergyDeposit\n"
-                "# Scored in component: Box\n"
-                "# EnergyDeposit (MeV): Sum\n"
-                f"# X in {voxelShapeBins[0]} bins of {200 / voxelShapeBins[0]} mm\n"
-                f"# Y in {voxelShapeBins[1]} bins of {200 / voxelShapeBins[1]} mm\n"
-                f"# Z in {voxelShapeBins[2]} bins of {200 / voxelShapeBins[2]} mm\n"
-                f"# Sum : {totalEnergy:.6f} MeV\n"
-            )
-        writer = csv.writer(file, delimiter=' ')
-                    
-        # Write voxel data line by line
-        for x in range(energyVector3D.shape[0]):
-            for y in range(energyVector3D.shape[1]):
-                for z in range(energyVector3D.shape[2]):
-                    value = energyVector3D[x, y, z]
-                    # if value > 0:
-                    writer.writerow([x, y, z, f"{value:.6f}"])
-                                    
-    # Cleanup shared memory     
+    # Cleanup shared memory
     shm_prob_table.close()
     shm_prob_table.unlink()
-    shm_energy_deposited.close()
-    shm_energy_deposited.unlink()
     shm_cdfs.close()
     shm_cdfs.unlink()
+    shm_energy_deposited.close()
+    shm_energy_deposited.unlink()
     
     shm_fluence.close()
     shm_fluence.unlink()
     shm_energy_fluence.close()
     shm_energy_fluence.unlink()
-    
-    shm_exit_angles.close()
-    shm_exit_angles.unlink()
-    shm_exit_energies.close()
-    shm_exit_energies.unlink()
-    
     if method == 'normalization':
-        shm_bin_edges.unlink()
-        shm_bin_edges.close()
-        
-    endTime = time.time()
-    print(f"Simulation time: {endTime - startTime:.12f} seconds")
-    print()
+        kwargs['shm_bin_edges'].close()
+        kwargs['shm_bin_edges'].unlink()
+
+    print(f"Simulation completed in {time.time() - startTime:.2f} seconds.")

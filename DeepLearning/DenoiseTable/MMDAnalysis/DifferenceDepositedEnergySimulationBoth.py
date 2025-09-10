@@ -3,13 +3,14 @@ import matplotlib.pyplot as plt
 import matplotlib.pylab as pylab
 import os
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+import matplotlib.ticker as ticker
 
 # Matplotlib params
 params = {
-    'xtick.labelsize': 16,    
-    'ytick.labelsize': 16,      
-    'axes.titlesize': 16,
-    'axes.labelsize': 16,
+    'xtick.labelsize': 18,
+    'ytick.labelsize': 18,
+    'axes.titlesize': 18,
+    'axes.labelsize': 18,
     'legend.fontsize': 12
 }
 pylab.rcParams.update(params)  # Apply changes
@@ -32,12 +33,12 @@ def getLateralProfile(data, z_index):
     return data[:, :, z_index]
 
 
-fileNameTOPAS = "./energyDepositedTOPAS.npy"
+fileNameTOPAS = "../../energyDepositedTOPAS.npy"
 
 numpyPathTrans = "./NumpyTrans/"
 numpyPathNorm = "./NumpyNorm/"
-fileNameSimulationTrans = f'{numpyPathTrans}energyDepositedtransformation.npy'
-fileNameSimulationNorm = f'{numpyPathNorm}energyDepositednormalization.npy'
+fileNameSimulationTrans = f'{numpyPathTrans}energyDepositedtransformation_1e-08.npy'
+fileNameSimulationNorm = f'{numpyPathNorm}energyDepositednormalization_1e-07.npy'
 
 savePath = "./PlotsBetter/" 
 os.makedirs(savePath, exist_ok=True)
@@ -73,12 +74,16 @@ plt.ylabel('Energy deposited (MeV)')
 plt.legend(loc='best', shadow=True, fancybox=True, framealpha=0.9)
 plt.grid(True)
 
+# Get the exponent of the main plot's y-axis scale
+y_max_main = ax.get_ylim()[1]
+main_exp = int(np.floor(np.log10(y_max_main)))
+        
 # Create inset axes for differences
 ax_inset = inset_axes(
     ax,
     width="110%",
     height="110%",
-    bbox_to_anchor=(0.14, 0.6, 0.3, 0.3),  # (x0, y0, width, height) in axes fraction (0 to 1)
+    bbox_to_anchor=(0.22, 0.6, 0.3, 0.3),  # (x0, y0, width, height) in axes fraction (0 to 1)
     bbox_transform=ax.transAxes,
     borderpad=0        
 )
@@ -88,9 +93,18 @@ diffSim3 = sim1Z - sim3Z
 
 ax_inset.plot(zRange, diffSim2, label='TOPAS - Transformation', color='blue', linestyle='-', linewidth=1)
 ax_inset.plot(zRange, diffSim3, label='TOPAS - Normalization', color='green', linestyle='-', linewidth=1)
-ax_inset.set_xlabel('Z (mm)', fontsize=10)
-ax_inset.set_ylabel('Difference (MeV)', fontsize=10)
-ax_inset.tick_params(labelsize=8)
+
+# Configure a ScalarFormatter to use the same scientific exponent as the main plot
+formatter = ticker.ScalarFormatter(useMathText=True)
+formatter.set_scientific(True)
+formatter.set_powerlimits((main_exp, main_exp))
+        
+# Apply the formatter to the inset's y-axis
+ax_inset.yaxis.set_major_formatter(formatter)
+        
+ax_inset.set_xlabel('Z (mm)', fontsize=13)
+ax_inset.set_ylabel('Difference (MeV)', fontsize=13)
+ax_inset.tick_params(labelsize=11)
 ax_inset.grid(True)
 
 plt.tight_layout()
@@ -144,10 +158,19 @@ for title, zIdx in zSlices.items():
     
     ax_inset.plot(xRange, diff_x_sim2, label='TOPAS - Transformation', color='blue', linestyle='-')
     ax_inset.plot(xRange, diff_x_sim3, label='TOPAS - Normalization', color='green', linestyle='-')
+    
+    # New code for inset formatting
+    y_max_main_x = ax.get_ylim()[1]
+    main_exp_x = int(np.floor(np.log10(y_max_main_x)))
+    formatter_x = ticker.ScalarFormatter(useMathText=True)
+    formatter_x.set_scientific(True)
+    formatter_x.set_powerlimits((main_exp_x, main_exp_x))
+    ax_inset.yaxis.set_major_formatter(formatter_x)
+
     ax_inset.set_xlim(-voxelBig[0] / 2, voxelBig[0] / 2)
-    ax_inset.set_xlabel('X (mm)', fontsize=10)
-    ax_inset.set_ylabel('Difference (MeV)', fontsize=10)
-    ax_inset.tick_params(labelsize=8)
+    ax_inset.set_xlabel('X (mm)', fontsize=13)
+    # ax_inset.set_ylabel('Difference (MeV)', fontsize=10)
+    ax_inset.tick_params(labelsize=11)
     ax_inset.grid(True)
 
     plt.tight_layout()
@@ -184,10 +207,19 @@ for title, zIdx in zSlices.items():
 
     ax_inset.plot(yRange, diff_y_sim2, label='TOPAS - Transformation', color='blue', linestyle='-')
     ax_inset.plot(yRange, diff_y_sim3, label='TOPAS - Normalization', color='green', linestyle='-')
+    
+    # New code for inset formatting
+    y_max_main_x = ax.get_ylim()[1]
+    main_exp_x = int(np.floor(np.log10(y_max_main_x)))
+    formatter_x = ticker.ScalarFormatter(useMathText=True)
+    formatter_x.set_scientific(True)
+    formatter_x.set_powerlimits((main_exp_x, main_exp_x))
+    ax_inset.yaxis.set_major_formatter(formatter_x)
+    
     ax_inset.set_xlim(-voxelBig[1] / 2, voxelBig[1] / 2)
-    ax_inset.set_xlabel('Y (mm)', fontsize=10)
-    ax_inset.set_ylabel('Difference (MeV)', fontsize=10)
-    ax_inset.tick_params(labelsize=8)
+    ax_inset.set_xlabel('Y (mm)', fontsize=13)
+    # ax_inset.set_ylabel('Difference (MeV)', fontsize=10)
+    ax_inset.tick_params(labelsize=11)
     ax_inset.grid(True)
 
     plt.tight_layout()
@@ -223,9 +255,9 @@ for title, zIdx in zSlices.items():
 
 
 # Load saved mean energy grid
-fluenceNameTOPAS = "./meanEnergyGridTOPAS.npy"
-fluenceNameTrans = f'{numpyPathTrans}meanEnergyGridtransformation.npy'
-fluenceNameNorm = f'{numpyPathNorm}meanEnergyGridnormalization.npy'
+fluenceNameTOPAS = "../../meanEnergyGridTOPAS.npy"
+fluenceNameTrans = f'{numpyPathTrans}meanEnergyGridtransformation_1e-08.npy'
+fluenceNameNorm = f'{numpyPathNorm}meanEnergyGridnormalization_1e-07.npy'
 
 meanEnergyGridTOPAS = np.load(fluenceNameTOPAS)  
 meanEnergyGridTrans = np.load(fluenceNameTrans)  
@@ -262,7 +294,7 @@ ax_inset = inset_axes(
     ax,
     width="110%",
     height="110%",
-    bbox_to_anchor=(0.24, 0.2, 0.3, 0.3),  # (x0, y0, width, height) in axes fraction (0 to 1)
+    bbox_to_anchor=(0.18, 0.2, 0.3, 0.3),  # (x0, y0, width, height) in axes fraction (0 to 1)
     bbox_transform=ax.transAxes,
     borderpad=0        
 )
@@ -272,10 +304,11 @@ diffMeanNorm = profileZMeanTOPAS - profileZMeanNorm
 
 ax_inset.plot(zRange, diffMeanTrans, label='TOPAS - Transformation', color='blue', linestyle='-', linewidth=1)
 ax_inset.plot(zRange, diffMeanNorm, label='TOPAS - Normalization', color='green', linestyle='-', linewidth=1)
-ax_inset.set_xlabel('Z (mm)', fontsize=10)
+
+ax_inset.set_xlabel('Z (mm)', fontsize=13)
 #ax_inset.set_xlim(-150, -100)
 ax_inset.set_ylabel('Difference (MeV)', fontsize=10)
-ax_inset.tick_params(labelsize=8)
+ax_inset.tick_params(labelsize=11)
 ax_inset.grid(True)
 
 plt.tight_layout()
@@ -382,6 +415,10 @@ ax.set_title("Energy Deposition Profile along X")
 ax.legend()
 ax.grid(True)
 
+# Get the exponent of the main plot's y-axis scale
+y_max_main = ax.get_ylim()[1]
+main_exp = int(np.floor(np.log10(y_max_main)))
+
 # Inset axes for difference
 ax_inset = inset_axes(
     ax,
@@ -395,7 +432,15 @@ diff_trans = profile_topas_x - profile_trans_x
 diff_norm = profile_topas_x - profile_norm_x
 ax_inset.plot(xCenters, diff_trans, label='TOPAS - Trans', color='blue', lw=1)
 ax_inset.plot(xCenters, diff_norm, label='TOPAS - Norm', color='green', lw=1)
-ax_inset.tick_params(labelsize=8)
+# Configure a ScalarFormatter to use the same scientific exponent as the main plot
+formatter = ticker.ScalarFormatter(useMathText=True)
+formatter.set_scientific(True)
+formatter.set_powerlimits((main_exp, main_exp))
+        
+# Apply the formatter to the inset's y-axis
+ax_inset.yaxis.set_major_formatter(formatter)
+
+ax_inset.tick_params(labelsize=11)
 ax_inset.grid(True)
 
 plt.tight_layout()
@@ -433,123 +478,3 @@ plt.tight_layout()
 plt.savefig(os.path.join(savePath, "EnergyProfile_Y_withInset.pdf"), dpi=300)
 plt.close()
 
-# # Extract the 2D XY slice (Z = 0)
-# sliceIndex = 2
-# mean_topas = meanEnergyGridTOPAS[:, :, sliceIndex]
-# mean_trans = meanEnergyGridTrans[:, :, sliceIndex]
-# mean_norm = meanEnergyGridNorm[:, :, sliceIndex]
-
-# # Create meshgrid for plotting (center of voxel)
-# xCenters = xRange + (xRange[1] - xRange[0]) / 2
-# yCenters = yRange + (yRange[1] - yRange[0]) / 2
-# X, Y = np.meshgrid(xCenters, yCenters, indexing='ij')
-
-# # ----------------- 2D Heatmaps -----------------
-# fig, axs = plt.subplots(1, 3, figsize=(18, 5))
-
-# im0 = axs[0].pcolormesh(X, Y, mean_topas, cmap='plasma')
-# axs[0].set_title("TOPAS Mean Energy [MeV]")
-# axs[0].set_xlabel("X [mm]")
-# axs[0].set_ylabel("Y [mm]")
-# plt.colorbar(im0, ax=axs[0])
-
-# im1 = axs[1].pcolormesh(X, Y, mean_trans, cmap='plasma')
-# axs[1].set_title("Transformation Sampling Mean Energy")
-# axs[1].set_xlabel("X [mm]")
-# axs[1].set_ylabel("Y [mm]")
-# plt.colorbar(im1, ax=axs[1])
-
-# im2 = axs[2].pcolormesh(X, Y, mean_norm, cmap='plasma')
-# axs[2].set_title("Normalization Sampling Mean Energy")
-# axs[2].set_xlabel("X [mm]")
-# axs[2].set_ylabel("Y [mm]")
-# plt.colorbar(im2, ax=axs[2])
-
-# plt.tight_layout()
-# plt.savefig(os.path.join(savePath, "MeanEnergyComparison.pdf"), dpi=300)
-# plt.close()
-
-# # ----------------- 1D Profiles -----------------
-
-# # Sum or average along axes
-# # profile_topas_x = np.mean(mean_topas, axis=1)
-# # profile_topas_y = np.mean(mean_topas, axis=0)
-
-# # profile_trans_x = np.mean(mean_trans, axis=1)
-# # profile_trans_y = np.mean(mean_trans, axis=0)
-
-# # profile_norm_x = np.mean(mean_norm, axis=1)
-# # profile_norm_y = np.mean(mean_norm, axis=0)
-# yIndex = 2
-# profile_topas_x = mean_topas[:, yIndex]
-# profile_trans_x = mean_trans[:, yIndex]
-# profile_norm_x = mean_norm[:, yIndex]
-
-# xIndex = 2
-# profile_topas_y = mean_topas[xIndex, :]
-# profile_trans_y = mean_trans[xIndex, :]
-# profile_norm_y = mean_norm[xIndex, :]
-
-# # Plot X profile
-# fig, ax = plt.subplots(figsize=(8, 5))
-# ax.plot(xCenters, profile_topas_x, label='TOPAS', lw=1, linestyle='-', color='red')
-# ax.plot(xCenters, profile_trans_x, label='Transformation', lw=1, linestyle='--', color='blue')
-# ax.plot(xCenters, profile_norm_x, label='Normalization', lw=1, linestyle='--', color='green')
-# ax.set_xlabel("X [mm]")
-# ax.set_ylabel("Mean Energy [MeV]")
-# ax.set_title("Mean Energy Profile along X")
-# ax.legend()
-# ax.grid(True)
-
-# # Inset
-# ax_inset = inset_axes(
-#     ax,
-#     width="110%",
-#     height="110%",
-#     bbox_to_anchor=(0.1, 0.5, 0.3, 0.3),  # (x0, y0, width, height) in axes fraction (0 to 1)
-#     bbox_transform=ax.transAxes,
-#     borderpad=0        
-# )
-# diff_trans = profile_topas_x - profile_trans_x
-# diff_norm = profile_topas_x - profile_norm_x
-# ax_inset.plot(xCenters, diff_trans, color='blue', lw=1)
-# ax_inset.plot(xCenters, diff_norm, color='green', lw=1)
-# ax_inset.set_title("Difference", fontsize=9)
-# ax_inset.tick_params(labelsize=8)
-# ax_inset.grid(True)
-
-# plt.tight_layout()
-# plt.savefig(os.path.join(savePath, "MeanEnergyProfile_X_withInset.pdf"), dpi=300)
-# plt.close()
-
-# # Plot Y profile
-# fig, ax = plt.subplots(figsize=(8, 5))
-# ax.plot(yCenters, profile_topas_y, label='TOPAS', lw=1, linestyle='-', color='red')
-# ax.plot(yCenters, profile_trans_y, label='Transformation', lw=1, linestyle='--', color='blue')
-# ax.plot(yCenters, profile_norm_y, label='Normalization', lw=1, linestyle='--', color='green')
-# ax.set_xlabel("Y [mm]")
-# ax.set_ylabel("Mean Energy [MeV]")
-# ax.set_title("Mean Energy Profile along Y")
-# ax.legend()
-# ax.grid(True)
-
-# # Inset
-# ax_inset = inset_axes(
-#     ax,
-#     width="110%",
-#     height="110%",
-#     bbox_to_anchor=(0.1, 0.5, 0.3, 0.3),  # (x0, y0, width, height) in axes fraction (0 to 1)
-#     bbox_transform=ax.transAxes,
-#     borderpad=0        
-# )
-# diff_trans = profile_topas_y - profile_trans_y
-# diff_norm = profile_topas_y - profile_norm_y
-# ax_inset.plot(yCenters, diff_trans, color='blue', lw=1)
-# ax_inset.plot(yCenters, diff_norm, color='green', lw=1)
-# ax_inset.set_title("Difference", fontsize=9)
-# ax_inset.tick_params(labelsize=8)
-# ax_inset.grid(True)
-
-# plt.tight_layout()
-# plt.savefig(os.path.join(savePath, "MeanEnergyProfile_Y_withInset.pdf"), dpi=300)
-# plt.close()

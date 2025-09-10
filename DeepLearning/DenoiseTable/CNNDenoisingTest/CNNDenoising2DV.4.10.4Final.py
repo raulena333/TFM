@@ -575,8 +575,7 @@ def denoise_full_dataset(denoising_model, histograms_mmap, npz_path, original_sh
             # Handle the zero-input edge cases
             for i in range(inputs.shape[0]):
                 noisy_slice = inputs[i, 0, :, :]
-                reference_slice = targets[i, 0, :, :].to(denoising_model.device)
-                if torch.sum(noisy_slice) < 1e-12 or torch.sum(reference_slice) < 1e-12:
+                if torch.sum(noisy_slice) < 1e-12:
                     denoised_probs[i] = torch.zeros_like(denoised_probs[i])
             
             # Move the denoised probabilities to the CPU and convert to a NumPy array.
@@ -633,7 +632,7 @@ def plot_denoising_results_from_npz(histograms_mmap, denoised_4d, hu_values, ini
         denoised_output_db = 10 * np.log10(denoised_output_np + 1e-12)
         true_clean_db = 10 * np.log10(true_clean_np + 1e-12)
         fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-        fig.suptitle(f'Denoising Example (M: {hu_values[m_idx_to_plot]:.0f} CT, E: {initial_energies[e_idx_to_plot]:.0f} MeV)', fontsize=16)
+        fig.suptitle(f'Denoising Example (M: {hu_values[m_idx_to_plot]:.0f} CT, E: {initial_energies[e_idx_to_plot]:.0f} keV)', fontsize=16)
         im1 = axes[0].imshow(noisy_input_db.T, origin='lower', aspect='auto', cmap='Reds', extent=extent)
         axes[0].set_title('Noisy Input')
         plt.colorbar(im1, ax=axes[0], label='Probability (dB)')
@@ -722,10 +721,10 @@ if __name__ == "__main__":
         'scheduler_patience': 5,
         'early_stopping_patience': 15,
         'num_epochs': 200,
-        'kl_weight': 1.,  
-        'l1_weight': 4 if method == 'transformation' else 3.,
+        'kl_weight': 1.2,  
+        'l1_weight': 700., 
         'downsample_factors': [2, 4, 8, 16],
-        'downsample_weights': [0.5, 0.25, 0.1, 0.05],
+        'downsample_weights': [15, 4., 0.5, 0.15],
     }
     print(f'[INFO] Training Parameters:')
     print(f'\t.Learning Rate: {training_params["learning_rate"]}')

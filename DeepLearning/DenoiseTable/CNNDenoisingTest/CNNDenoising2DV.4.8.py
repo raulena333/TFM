@@ -1,22 +1,34 @@
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import DataLoader, Dataset
-from torch.optim.lr_scheduler import ReduceLROnPlateau
-import torch.nn.functional as F
-from torch.utils.data import random_split
-import numpy as np
-import matplotlib.pyplot as plt
-import copy
+# --- 1. Imports ---
 import argparse
 import os
 import sys
+import numpy as np
+import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-# --- 1. Global Constants ---
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+import copy
+from torch.utils.data import Dataset, DataLoader, random_split
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+
+# Attempt to import torch.cuda.amp for mixed precision training
+try:
+    from torch.cuda.amp import autocast, GradScaler
+    mixed_precision_available = True
+    print("[INFO] PyTorch AMP (Mixed Precision) is available.")
+except ImportError:
+    mixed_precision_available = False
+    print("[INFO] PyTorch AMP (Mixed Precision) is not available. Training will run in full precision.")
+
+
+# --- 2. Global Constants ---
 amplitude_scaling_factor = 1000.0
 
-# --- 2. Data Loading Function (Refactored for memory-efficiency) ---
+
+# --- 3. Data Loading Function (Refactored for memory-efficiency) ---
 def load_data_and_metadata_from_npz(method, npz_path):
     """
     Loads all metadata and returns a memory-mapped object for the histograms.
@@ -60,13 +72,11 @@ def load_data_and_metadata_from_npz(method, npz_path):
     npz.close() # Close the initial file handle to save memory
 
     # Now, open the NPZ file again using a memory map ('r') for efficient slicing
-    # THIS IS THE KEY OPTIMIZATION: `mmap_mode='r'` prevents the entire file from loading
-    # into RAM. We now have a reference to the data on disk.
     histograms_mmap = np.load(npz_path, mmap_mode='r')['histograms']
     
     return npz_path, histograms_mmap, M_dim, E_dim, A_Dim, e_dim, ct_values, initial_energies, method, extra
 
-# --- 3. Optimized On-the-fly Dataset for NPZ files ---
+# --- 4. Optimized On-the-fly Dataset for NPZ files ---
 class OnTheFlyNPZDataset(Dataset):
     """
     Loads data on-the-fly from a large NPZ file using a memory map to avoid
@@ -102,14 +112,12 @@ class OnTheFlyNPZDataset(Dataset):
         # Access the memory-mapped histograms directly - this is the key optimization.
         # This line reads a small slice from the file, not the whole file.
         noisy_input_np = self.histograms_mmap[0, m_idx, e_idx, :, :]
-        noisy_target_np = self.histograms_mmap[1, m_idx, e_idx, :, :]
+        true_target_np = self.histograms_mmap[1, m_idx, e_idx, :, :]
         
         # Convert to torch tensors and scale
         hist = torch.from_numpy(noisy_input_np).float() * self.amplitude_scaling_factor
-        target = torch.from_numpy(noisy_target_np).float() * self.amplitude_scaling_factor
+        target = torch.from_numpy(true_target_np).float() * self.amplitude_scaling_factor
         
-        mask = (hist > 1e-12).float()
-
         ct_channel = self.ct_scale[m_idx].expand(self.A, self.e)
         e_channel = self.e_scale[e_idx].expand(self.A, self.e)
 
@@ -120,18 +128,15 @@ class OnTheFlyNPZDataset(Dataset):
             if torch.rand(1).item() > 0.5:
                 input_img = torch.flip(input_img, dims=[1])
                 target = torch.flip(target, dims=[0])
-                mask = torch.flip(mask, dims=[0])
             if torch.rand(1).item() > 0.5:
                 input_img = torch.flip(input_img, dims=[2])
                 target = torch.flip(target, dims=[1])
-                mask = torch.flip(mask, dims=[1])
-
+        
         target = target.unsqueeze(0)
-        mask = mask.unsqueeze(0)
 
-        return input_img, target, mask
+        return input_img, target, idx
 
-# --- 4. Robust U-Net Architecture (Modified) ---
+# --- 5. Robust U-Net Architecture ---
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(ResidualBlock, self).__init__()
@@ -208,19 +213,14 @@ class SelfAttentionBottleneck(nn.Module):
         
         return out
 
-
 class DenoisingUNet(nn.Module):
     def __init__(self, in_channels=5, out_channels=1, features_list=None):
         super(DenoisingUNet, self).__init__()
         if features_list is None:
             features_list = [32, 64, 128, 256, 512]
 
-        # --- Learned Feature Extractor ---
-        self.feature_extractor = ResidualBlock(in_channels, features_list[0])
-
         # --- Encoder Path ---
-        # The first encoder block now takes the output of the feature extractor.
-        self.enc1 = ResidualBlock(features_list[0], features_list[0])
+        self.enc1 = ResidualBlock(in_channels, features_list[0])
         self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
         self.dropout1 = nn.Dropout2d(p=0.1)
 
@@ -263,12 +263,9 @@ class DenoisingUNet(nn.Module):
         self.dropout8 = nn.Dropout2d(p=0.1)
 
         self.final_conv = nn.Conv2d(features_list[0], out_channels, kernel_size=1)
-        self.output_activation = nn.LeakyReLU(negative_slope=0.1)
+        # Note: The output activation is removed here. The model returns raw logits.
 
     def forward(self, x):
-        # Pass the raw input through the feature extractor
-        x = self.feature_extractor(x)
-        
         # --- Encoder Path ---
         enc1_out = self.enc1(x)
         pool1_out = self.pool1(enc1_out)
@@ -329,56 +326,97 @@ class DenoisingUNet(nn.Module):
         dec4_out = self.dropout8(dec4_out)
 
         # --- Final Layer ---
-        final_output = self.final_conv(dec4_out)
-        output = self.output_activation(final_output)
-        return output
+        logits = self.final_conv(dec4_out)
+        return logits
 
-# --- 5. Custom Loss Function (Unchanged) ---
-class MaskedMSELoss(nn.Module):
-    def __init__(self, signal_weight=10.0, background_weight=1.0, signal_threshold=1e-6):
-        super(MaskedMSELoss, self).__init__()
-        self.mse_loss = nn.MSELoss(reduction='none')
-        self.signal_weight = signal_weight
-        self.background_weight = background_weight
-        self.signal_threshold = signal_threshold
+# --- 6. Custom Zero-Aware Hybrid Loss (V3) ---
+class HybridKLLossV3(nn.Module):
+    """
+    An improved hybrid loss function with explicit weights for each component
+    to allow fine-grained control over smoothing vs. sparsity.
+    """
+    def __init__(self, downsample_factors=None, lambda_kl=1000.0, lambda_fp=0.1, lambda_fn=1.0):
+        super(HybridKLLossV3, self).__init__()
+        self.downsample_factors = downsample_factors if downsample_factors is not None else []
+        self.lambda_kl = lambda_kl   # New weight for the KL Divergence component
+        self.lambda_fp = lambda_fp   # Weight for False Positive penalty
+        self.lambda_fn = lambda_fn   # Weight for False Negative penalty
+        
+        self.l1_loss = nn.L1Loss(reduction='sum')
+        self.kl_loss = nn.KLDivLoss(reduction='batchmean', log_target=False)
 
-    def forward(self, inputs, targets, mask):
-        element_wise_mse = self.mse_loss(inputs, targets)
-        weighted_mse = (element_wise_mse * mask * self.signal_weight) + \
-                       (element_wise_mse * (1.0 - mask) * self.background_weight)
-        return torch.mean(weighted_mse)
+        print(f"[INFO] Initializing HybridKLLossV3 with downsample factors: {self.downsample_factors}")
+        print(f"[INFO] KL Lambda (lambda_kl): {self.lambda_kl}")
+        print(f"[INFO] False Positive Lambda (lambda_fp): {self.lambda_fp}")
+        print(f"[INFO] False Negative Lambda (lambda_fn): {self.lambda_fn}")
+        
+    def forward(self, inputs, targets):
+        log_softmax_inputs = F.log_softmax(inputs.flatten(start_dim=1), dim=1).view_as(inputs)
 
-# --- 6. Denoising Model Class (Unchanged) ---
+        # 1. KL Divergence Component
+        kl_loss_component = self.kl_loss(log_softmax_inputs, targets)
+
+        for factor in self.downsample_factors:
+            downsampled_inputs = F.avg_pool2d(inputs, kernel_size=factor, stride=factor)
+            downsampled_targets = F.avg_pool2d(targets, kernel_size=factor, stride=factor)
+            downsampled_targets_sum = downsampled_targets.sum(dim=[2,3], keepdim=True)
+            downsampled_targets_norm = downsampled_targets / (downsampled_targets_sum + 1e-12)
+            downsampled_inputs_log_softmax = F.log_softmax(
+                downsampled_inputs.flatten(start_dim=1), dim=1
+            ).view_as(downsampled_inputs)
+            kl_loss_component += self.kl_loss(downsampled_inputs_log_softmax, downsampled_targets_norm)
+
+        # 2. False Positive (FP) Penalty
+        zero_mask = (targets < 1e-9).float()
+        fp_outputs = inputs * zero_mask
+        fp_penalty = self.l1_loss(fp_outputs, torch.zeros_like(fp_outputs))
+        
+        # 3. False Negative (FN) Penalty
+        non_zero_mask = (targets >= 1e-9).float()
+        fn_outputs = inputs * non_zero_mask
+        fn_targets = targets * non_zero_mask
+        fn_penalty = self.l1_loss(fn_outputs, fn_targets)
+
+        # 4. Combine all components with their scaling factors
+        total_loss = self.lambda_kl * kl_loss_component + self.lambda_fp * fp_penalty + self.lambda_fn * fn_penalty
+
+        return total_loss
+    
+# --- 7. Denoising Model Class ---
 class DenoisingModel:
     def __init__(self, model_params, training_params):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Using device: {self.device}")
 
+        # FIX: Instantiate the correct model class
         self.model = DenoisingUNet(
             in_channels=model_params['in_channels'],
             out_channels=model_params['out_channels'],
             features_list=model_params['features_list']
         ).to(self.device)
 
-        self.criterion = MaskedMSELoss(
-            signal_weight=training_params['signal_weight'],
-            background_weight=training_params['background_weight'],
-            signal_threshold=training_params['signal_threshold']
+        # FIX: Use the new KLLoss criterion
+        self.criterion = HybridKLLossV3(
+            downsample_factors=training_params['downsample_factors'],
+            lambda_kl=training_params['lambda_kl'],
+            lambda_fp=training_params['lambda_fp'],
+            lambda_fn=training_params['lambda_fn']
         )
+            
+        self.optimizer = optim.AdamW(self.model.parameters(), 
+                                     lr=training_params['learning_rate'], 
+                                     weight_decay=training_params['weight_decay'])
+        self.scheduler = ReduceLROnPlateau(self.optimizer, 
+                                           mode='min', 
+                                           factor=training_params['scheduler_factor'], 
+                                           patience=training_params['scheduler_patience'])
+        # Initialize a GradScaler for mixed precision training
+        if mixed_precision_available and self.device.type == 'cuda':
+            self.scaler = GradScaler()
+        else:
+            self.scaler = None
 
-        self.optimizer = optim.Adam(
-            self.model.parameters(),
-            lr=training_params['learning_rate'],
-            weight_decay=training_params['weight_decay']
-        )
-        self.scheduler = ReduceLROnPlateau(
-            self.optimizer,
-            mode='min',
-            factor=training_params['scheduler_factor'],
-            patience=training_params['scheduler_patience'],
-        )
-
-    def train_model(self, train_loader, val_loader, num_epochs, early_stopping_patience=25):
+    def train_model(self, train_loader, val_loader, num_epochs, early_stopping_patience=10):
         print("[INFO] Starting model training...")
         train_losses = []
         val_losses = []
@@ -390,15 +428,23 @@ class DenoisingModel:
             self.model.train()
             running_loss = 0.0
 
-            for inputs, targets, masks in tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs} [TRAIN]"):
-                inputs, targets, masks = inputs.to(self.device), targets.to(self.device), masks.to(self.device)
+            for inputs, targets, _ in tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs} [TRAIN]"):
+                inputs, targets = inputs.to(self.device), targets.to(self.device)
 
                 self.optimizer.zero_grad()
-                outputs = self.model(inputs)
-                loss = self.criterion(outputs, targets, masks)
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-                self.optimizer.step()
+                
+                if self.scaler:
+                    with autocast():
+                        outputs = self.model(inputs)
+                        loss = self.criterion(outputs, targets)
+                    self.scaler.scale(loss).backward()
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                else:
+                    outputs = self.model(inputs)
+                    loss = self.criterion(outputs, targets)
+                    loss.backward()
+                    self.optimizer.step()
 
                 running_loss += loss.item() * inputs.size(0)
 
@@ -408,10 +454,10 @@ class DenoisingModel:
             self.model.eval()
             val_running_loss = 0.0
             with torch.no_grad():
-                for inputs, targets, masks in tqdm(val_loader, desc=f"Epoch {epoch+1}/{num_epochs} [VALID]"):
-                    inputs, targets, masks = inputs.to(self.device), targets.to(self.device), masks.to(self.device)
+                for inputs, targets, _ in tqdm(val_loader, desc=f"Epoch {epoch+1}/{num_epochs} [VALID]"):
+                    inputs, targets = inputs.to(self.device), targets.to(self.device)
                     outputs = self.model(inputs)
-                    loss = self.criterion(outputs, targets, masks)
+                    loss = self.criterion(outputs, targets)
                     val_running_loss += loss.item() * inputs.size(0)
 
             val_epoch_loss = val_running_loss / len(val_loader.dataset)
@@ -419,7 +465,7 @@ class DenoisingModel:
 
             self.scheduler.step(val_epoch_loss)
 
-            if val_epoch_loss < best_val_loss:
+            if val_epoch_loss <= best_val_loss:
                 best_val_loss = val_epoch_loss
                 best_model_wts = copy.deepcopy(self.model.state_dict())
                 epochs_without_improvement = 0
@@ -445,137 +491,13 @@ class DenoisingModel:
 
         return train_losses, val_losses
 
-    def denoise_histogram(self, input_tensor):
-        self.model.eval()
-        with torch.no_grad():
-            outputs_scaled = self.model(input_tensor.to(self.device)).cpu().numpy()
-
-        denoised_outputs = np.zeros_like(outputs_scaled)
-        for i in range(outputs_scaled.shape[0]):
-            temp_output = outputs_scaled[i, 0, :, :] / amplitude_scaling_factor
-
-            slice_sum = temp_output.sum()
-            if slice_sum > 0:
-                denoised_outputs[i, 0, :, :] = temp_output / slice_sum
-            else:
-                denoised_outputs[i, 0, :, :] = np.ones_like(temp_output) / (temp_output.shape[0] * temp_output.shape[1])
-        return denoised_outputs
-
-
-# --- 7. Plotting Functions (Refactored) ---
-def plot_distributions_before(histograms_mmap, ct_vals, initial_e_vals, m_indices, e_indices, x_angles_np, y_final_energies_np, directory="./plots"):
-    print(f'Plotting distributions for specified (M, E) pairs before denoising...')
-    plot_counter = 0
-    # Use np.min and np.max to be robust to tuple/array inputs
-    extent = [np.min(x_angles_np), np.max(x_angles_np), np.min(y_final_energies_np), np.max(y_final_energies_np)]
-    
-    for m_idx_to_plot in m_indices:
-        for e_idx_to_plot in e_indices:
-            noisy_1 = histograms_mmap[0, m_idx_to_plot, e_idx_to_plot, :, :]
-            noisy_2 = histograms_mmap[1, m_idx_to_plot, e_idx_to_plot, :, :]
-
-            fig, axes = plt.subplots(1, 2, figsize=(12, 6))
-            fig.suptitle(f'Distributions Before Denoising (M: {ct_vals[m_idx_to_plot]:.0f} CT, E: {initial_e_vals[e_idx_to_plot]:.0f} keV)', fontsize=16)
-
-            im1 = axes[0].imshow(noisy_1.T, origin='lower', aspect='auto', cmap='viridis', extent=extent)
-            axes[0].set_title('Noisy Input (Poisson Noise 1)')
-            axes[0].set_xlabel('Transformed scattered Angle')
-            axes[0].set_ylabel('Transformed Final Energy')
-            plt.colorbar(im1, ax=axes[0], label='Probability')
-
-            im2 = axes[1].imshow(noisy_2.T, origin='lower', aspect='auto', cmap='viridis', extent=extent)
-            axes[1].set_title('Noisy Input (Poisson Noise 2)')
-            axes[1].set_xlabel('Transformed scattered Angle')
-            axes[1].set_ylabel('Transformed Final Energy')
-            plt.colorbar(im2, ax=axes[1], label='Probability')
-
-            plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-            plt.savefig(f'{directory}/noisy_example_M{m_idx_to_plot}_E{e_idx_to_plot}.pdf', bbox_inches='tight')
-            plt.close(fig)
-            plot_counter += 1
-            if plot_counter >= 1050:
-                break
-
-def plot_denoising_results(denoising_model, histograms_mmap, ct_vals, initial_e_vals, m_indices, e_indices, M, E, A, e, x_angles_np, y_final_energies_np, amplitude_scaling_factor, directory = "./plots"):
-    print("Plotting denoising results for specified (M, E) pairs...")
-    
-    # Bug Fix: Ensure inputs are numpy arrays for min/max operations to prevent AttributeErrors
-    x_angles_np = np.asarray(x_angles_np)
-    y_final_energies_np = np.asarray(y_final_energies_np)
-
-    plot_counter = 0
-    # The fix here is to use the global np.min and np.max functions
-    extent = [np.min(x_angles_np), np.max(x_angles_np), np.min(y_final_energies_np), np.max(y_final_energies_np)]
-    
-    # Pre-calculate coordinate grids and scaling once
-    x_coords = torch.linspace(0, 1, A, dtype=torch.float32)
-    y_coords = torch.linspace(0, 1, e, dtype=torch.float32)
-    x_grid = x_coords.view(A, 1).expand(A, e)
-    y_grid = y_coords.view(1, e).expand(A, e)
-    ct_min, ct_max = np.min(ct_vals), np.max(ct_vals)
-    e_min, e_max = np.min(initial_e_vals), np.max(initial_e_vals)
-
-    for m_idx_to_plot in m_indices:
-        for e_idx_to_plot in e_indices:
-            noisy_input_np = histograms_mmap[0, m_idx_to_plot, e_idx_to_plot, :, :]
-            noisy_target_np = histograms_mmap[1, m_idx_to_plot, e_idx_to_plot, :, :]
-
-            noisy_input_img_scaled = torch.from_numpy(noisy_input_np).float() * amplitude_scaling_factor
-            
-            ct_scale = (ct_vals[m_idx_to_plot] - ct_min) / (ct_max - ct_min + 1e-12)
-            e_scale = (initial_e_vals[e_idx_to_plot] - e_min) / (e_max - e_min + 1e-12)
-            
-            ct_channel = torch.as_tensor(ct_scale, dtype=torch.float32).expand(A, e)
-            e_channel = torch.as_tensor(e_scale, dtype=torch.float32).expand(A, e)
-            
-            single_input_tensor = torch.stack(
-                [noisy_input_img_scaled, ct_channel, e_channel, x_grid, y_grid], dim=0).unsqueeze(0)
-
-            # Get noisy input data (channel 0)
-            noisy_input_img = single_input_tensor[0, 0, :, :].numpy() / amplitude_scaling_factor
-            
-            # Denoise the single sample
-            predicted_clean_img = denoising_model.denoise_histogram(single_input_tensor)[0, 0, :, :]
-            
-            true_clean_img = noisy_target_np
-            
-            fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-            fig.suptitle(f'Denoising Example (M: {ct_vals[m_idx_to_plot]:.0f} CT, E: {initial_e_vals[e_idx_to_plot]:.0f} keV)', fontsize=16)
-
-            im1 = axes[0].imshow(noisy_input_img.T, origin='lower', aspect='auto', cmap='viridis', extent=extent)
-            axes[0].set_title('Noisy Input (Poisson Noise 1)')
-            axes[0].set_xlabel('Scattered Angle')
-            axes[0].set_ylabel('Final Energy')
-            plt.colorbar(im1, ax=axes[0], label='Probability')
-
-            im2 = axes[1].imshow(predicted_clean_img.T, origin='lower', aspect='auto', cmap='viridis', extent=extent)
-            axes[1].set_title('Predicted Denoised (Noise2Noise)')
-            axes[1].set_xlabel('Scattered Angle')
-            axes[1].set_ylabel('Final Energy')
-            plt.colorbar(im2, ax=axes[1], label='Probability')
-
-            im3 = axes[2].imshow(true_clean_img.T, origin='lower', aspect='auto', cmap='viridis', extent=extent)
-            axes[2].set_title('True Clean')
-            axes[2].set_xlabel('Scattered Angle')
-            axes[2].set_ylabel('Final Energy')
-            plt.colorbar(im3, ax=axes[2], label='Probability')
-
-            plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-            plt.savefig(f'{directory}/denoising_example_M{m_idx_to_plot}_E{e_idx_to_plot}.pdf', bbox_inches='tight')
-            plt.close(fig)
-            plot_counter += 1
-            if plot_counter >= 1050:
-                break
-
-# --- 8. Function to Save Denoised Histograms (Unchanged logic, but uses new Dataset) ---
-def save_denoised_histograms(denoising_model, histograms_mmap, npz_path, output_filename, original_shape, hu_values, initial_energies, method, extra=None, batch_size=30):
+# --- 8. Functions for Denoising, Plotting, and Saving ---
+def denoise_full_dataset(denoising_model, histograms_mmap, npz_path, original_shape, hu_values, initial_energies, batch_size=128):
     """
-    Denoises the full dataset by loading data on-the-fly and writes the
-    denoised histograms and metadata to an NPZ file.
+    Denoises the entire dataset and returns the result as a 4D numpy array.
     """
-    output_filename = f"{output_filename}_{method}.npz"
-    print(f"\nDenoising full dataset and saving to {output_filename}…")
-
+    print("\nStarting full dataset denoising...")
+    
     M, E, A, e = original_shape
     
     full_dataset = OnTheFlyNPZDataset(npz_path, histograms_mmap, hu_values, initial_energies, M, E, A, e, 
@@ -585,48 +507,56 @@ def save_denoised_histograms(denoising_model, histograms_mmap, npz_path, output_
     
     denoised_outputs_list = []
     
-    # We will get the raw model output and apply normalization/zero-check later
     denoising_model.model.eval()
     with torch.no_grad():
         for inputs, _, _ in tqdm(full_loader, desc="Denoising batches"):
             inputs = inputs.to(denoising_model.device)
-            # Run the model to get the raw, un-normalized output
             raw_denoised = denoising_model.model(inputs)
             
-            # Move both noisy input and raw output to CPU for processing
             raw_denoised_np = raw_denoised.cpu().numpy()
             noisy_inputs_np = inputs.cpu().numpy()
 
-            # Create a new batch for corrected outputs
             corrected_batch_denoised = np.zeros_like(raw_denoised_np)
 
-            # Loop through each sample in the batch to apply logic
             for i in range(raw_denoised_np.shape[0]):
-                noisy_slice = noisy_inputs_np[i, 0, :, :]
+                noisy_slice_scaled = noisy_inputs_np[i, 0, :, :]
                 denoised_slice = raw_denoised_np[i, 0, :, :]
 
-                # Check if the noisy input for this slice was all zeros
-                # We use a small epsilon to account for potential floating point issues
-                if np.sum(noisy_slice) < 1e-12:
-                    # If the noisy input was zero, the output must be zero
+                # Check for zero-state condition based on the noisy input
+                if np.sum(noisy_slice_scaled) < 1e-12:
+                    # If the noisy input is zero, the output should also be zero
                     corrected_batch_denoised[i, 0, :, :] = np.zeros_like(denoised_slice)
                 else:
-                    # Otherwise, normalize the denoised output
-                    slice_sum = np.sum(denoised_slice)
-                    if slice_sum > 1e-12:
-                        corrected_batch_denoised[i, 0, :, :] = denoised_slice / slice_sum
-                    else:
-                        # Handle case where denoised output is also close to zero
-                        # but noisy input was not. This is a fallback to a uniform
-                        # distribution, but should be rare.
-                        corrected_batch_denoised[i, 0, :, :] = np.ones_like(denoised_slice) / (denoised_slice.shape[0] * denoised_slice.shape[1])
+                    # Apply softmax to enforce a sum-to-one probability distribution
+                    # This is the post-processing step for the raw logits from the model
+                    flat_denoised = denoised_slice.flatten()
+                    softmax_output = np.exp(flat_denoised) / np.sum(np.exp(flat_denoised))
+                    corrected_batch_denoised[i, 0, :, :] = softmax_output.reshape(denoised_slice.shape)
             
             denoised_outputs_list.append(corrected_batch_denoised)
 
     all_denoised = np.concatenate(denoised_outputs_list, axis=0)
-    # The output from the model is 4D (batch, channels, H, W). We reshape it to the 4D of the dataset (M, E, A, e).
     denoised_4d = all_denoised.reshape(original_shape)
+    
+    # Calculate sum of noisy1, denoise and noisy2
+    print(f'[INFO] Total sum of the three 4D arrays ...')
+    noisy_sum_4d = np.sum(histograms_mmap[0])
+    denoised_sum_4d = np.sum(denoised_4d)
+    reference_sum_4d = np.sum(histograms_mmap[1])
+    
+    print(f'\t Noisy sum: {noisy_sum_4d}')
+    print(f'\t Denoised sum: {denoised_sum_4d}')
+    print(f'\t Reference sum: {reference_sum_4d}')
 
+    return denoised_4d
+
+def save_denoised_npz(denoised_4d, output_filename, hu_values, initial_energies, method, extra=None):
+    """
+    Saves the denoised histogram and metadata to an NPZ file.
+    """
+    output_filename = f"{output_filename}_{method}.npz"
+    print(f"\nSaving denoised data to {output_filename}...")
+    
     payload = {"probTable": denoised_4d, "HU": hu_values, "energies": initial_energies}
 
     if method == "transformation":
@@ -642,10 +572,81 @@ def save_denoised_histograms(denoising_model, histograms_mmap, npz_path, output_
         raise ValueError(f"Unknown method '{method}'. Expected 'transformation' or 'normalization'.")
     
     np.savez(output_filename, **payload)
-    print(f"Denoised 4-D data (and method-specific variables) written to {output_filename}")
+    print(f"Denoised 4-D data and metadata written to {output_filename}")
 
 
-# --- Main Execution Block (Refactored) ---
+def plot_denoising_results_from_npz(histograms_mmap, denoised_4d, hu_values, initial_energies, method, plot_indices, directory="./plots", original_4d_shape=None):
+    """
+    Generates plots comparing noisy, denoised, and true histograms from the saved data.
+    """
+    print("\nGenerating denoising plots...")
+    
+    # FIX: Use the provided original_4d_shape
+    M, E, A, e = original_4d_shape
+    
+    # Determine axes ranges based on the method
+    x_angles_range = np.linspace(0, 1, A) if method == 'normalization' else np.linspace(0, 70, A)
+    y_final_energies_range = np.linspace(0, 1, e) if method == 'normalization' else np.linspace(-0.6, 0, e)
+    extent = [np.min(x_angles_range), np.max(x_angles_range), np.min(y_final_energies_range), np.max(y_final_energies_range)]
+
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+    for idx in plot_indices:
+        m_idx_to_plot = idx // E
+        e_idx_to_plot = idx % E
+
+        noisy_input_np = histograms_mmap[0, m_idx_to_plot, e_idx_to_plot, :, :]
+        true_clean_np = histograms_mmap[1, m_idx_to_plot, e_idx_to_plot, :, :]
+        denoised_output_np = denoised_4d[m_idx_to_plot, e_idx_to_plot, :, :]
+        
+        # Convert to dB
+        noisy_input_db = 10 * np.log10(noisy_input_np + 1e-12)
+        denoised_output_db = 10 * np.log10(denoised_output_np + 1e-12)
+        true_clean_db = 10 * np.log10(true_clean_np + 1e-12)
+        
+        fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+        fig.suptitle(f'Denoising Example (M: {hu_values[m_idx_to_plot]:.0f} CT, E: {initial_energies[e_idx_to_plot]:.0f} keV)', fontsize=16)
+
+        im1 = axes[0].imshow(noisy_input_db.T, origin='lower', aspect='auto', cmap='Reds', extent=extent)
+        # FIX: Correct title
+        axes[0].set_title('Noisy Input 1')
+        plt.colorbar(im1, ax=axes[0], label='Probability (dB)')
+        if method == 'normalization':
+            axes[0].set_xlabel('Normalized Angle (a.u.)')
+            axes[0].set_ylabel('Normalized Energy (a.u.)')
+        else:
+            axes[0].set_xlabel(r'Angle$\sqrt{E_i}$ (deg$\cdot$MeV$^{1/2}$)')
+            axes[0].set_ylabel(r'$\frac{ln((E_i-E_f)/E_i)}{\sqrt{E_i}}$ (MeV$^{-1/2}$)')
+
+        im2 = axes[1].imshow(denoised_output_db.T, origin='lower', aspect='auto', cmap='Reds', extent=extent)
+        axes[1].set_title('Predicted Denoised')
+        plt.colorbar(im2, ax=axes[1], label='Probability (dB)')
+        if method == 'normalization':
+            axes[1].set_xlabel('Normalized Angle (a.u.)')
+            axes[1].set_ylabel('Normalized Energy (a.u.)')
+        else:
+            axes[1].set_xlabel(r'Angle$\sqrt{E_i}$ (deg$\cdot$MeV$^{1/2}$)')
+            axes[1].set_ylabel(r'$\frac{ln((E_i-E_f)/E_i)}{\sqrt{E_i}}$ (MeV$^{-1/2}$)')
+
+        im3 = axes[2].imshow(true_clean_db.T, origin='lower', aspect='auto', cmap='Reds', extent=extent)
+        # FIX: Correct title
+        axes[2].set_title('Noisy Input 2')
+        plt.colorbar(im3, ax=axes[2], label='Probability (dB)')
+        if method == 'normalization':
+            axes[2].set_xlabel('Normalized Angle (a.u.)')
+            axes[2].set_ylabel('Normalized Energy (a.u.)')
+        else:
+            axes[2].set_xlabel(r'Angle$\sqrt{E_i}$ (deg$\cdot$MeV$^{1/2}$)')
+            axes[2].set_ylabel(r'$\frac{ln((E_i-E_f)/E_i)}{\sqrt{E_i}}$ (MeV$^{-1/2}$)')
+
+        plt.tight_layout()
+        plt.savefig(f'{directory}/denoising_example_full_run_M{m_idx_to_plot}_E{e_idx_to_plot}.pdf')
+        plt.close(fig)
+    print(f"Generated {len(plot_indices)} denoising plots.")
+
+
+# --- 9. Main Execution Block ---
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train a denoising CNN with real data from an NPZ file.")
     data_source_group = parser.add_mutually_exclusive_group(required=True)
@@ -656,154 +657,106 @@ if __name__ == "__main__":
     
     # 1. Data Loading and Initial Setup
     method = 'transformation' if args.transformation else 'normalization'
-    if args.npz:
-        npz_path = args.npz
-    else:
-        npz_path = ('./DenoisingDataTransSheet.npz' if method == 'transformation' else './DenoisingDataNormSheet.npz')
+    npz_path = args.npz if args.npz else (
+        './DenoisingDataTransSheet.npz' if method == 'transformation' else './DenoisingDataNormSheet.npz'
+    )
     
-    if not os.path.isfile(npz_path):
-        print(f"[ERROR] NPZ file '{npz_path}' does not exist.", file=sys.stderr)
-        sys.exit(1)
-    
-    # Load all metadata and a memory-mapped object for the histograms
     npz_path, histograms_mmap, num_materials, num_initial_energies, num_angles, num_final_energies, ct_values, initial_energies, method, extra = load_data_and_metadata_from_npz(method=method, npz_path=npz_path)
 
     original_4d_shape = (num_materials, num_initial_energies, num_angles, num_final_energies)
     print(f"[INFO] Original 4D shape: {original_4d_shape}")
+    
+    # Check if the image dimensions are 100x100
+    if num_angles != 100 or num_final_energies != 100:
+        raise ValueError("The provided NPZ data does not have a 100x100 histogram size.")
 
-    # 2. Create the efficient on-the-fly dataset
+    # 2. Dataset and DataLoader
     full_dataset = OnTheFlyNPZDataset(
         npz_path=npz_path,
         histograms_mmap=histograms_mmap,
         ct_vals=ct_values,
         initial_e_vals=initial_energies,
         M=num_materials, E=num_initial_energies, A=num_angles, e=num_final_energies,
-        augment_data=True,
+        augment_data=False,
         amplitude_scaling_factor=amplitude_scaling_factor
     )
     
-    # 3. Define indices to plot for visualization
-    if method == 'transformation':
-        x_angles_range = np.linspace(0, 70, num_angles) 
-        y_final_energies_range = np.linspace(-0.6, 0, num_final_energies) 
-    else:
-        x_angles_range = np.linspace(0, 1, num_angles)
-        y_final_energies_range = np.linspace(0, 1, num_final_energies)
-    
-    print(f'[INFO] USing values for plotting x: ({x_angles_range.min()}, {x_angles_range.max()}) and y: ({y_final_energies_range.min()}, {y_final_energies_range.max()}) for visualization.')
+    train_size = int(0.8 * len(full_dataset))
+    val_size = len(full_dataset) - train_size
+    train_dataset, val_dataset = random_split(full_dataset, [train_size, val_size])
 
-    num_materials_to_plot = min(num_materials, 10)
-    num_initial_energies_to_plot = min(num_initial_energies, 10)
-    m_indices_to_plot_final = np.linspace(0, num_materials - 1, num_materials_to_plot, dtype=int)
-    e_indices_to_plot_final = np.linspace(0, num_initial_energies - 1, num_initial_energies_to_plot, dtype=int)
-
-    # Create the directory for saving plots
-    directory = "./plots"
-    if not os.path.exists(directory):
-        os.makedirs(directory)
-
-    # 4. Split dataset and create DataLoaders
-    train_len = int(0.8 * len(full_dataset))
-    val_len = len(full_dataset) - train_len
-    train_dataset, val_dataset = random_split(
-        full_dataset, [train_len, val_len], generator=torch.Generator().manual_seed(42)
-    )
-    
-    train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True, num_workers=2)
-    val_loader = DataLoader(val_dataset, batch_size=128, shuffle=False, num_workers=2)
+    train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True, num_workers=2, pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=128, shuffle=False, num_workers=2, pin_memory=True)
     
     print(f"[INFO] Number of training samples: {len(train_dataset)}")
     print(f"[INFO] Number of validation samples: {len(val_dataset)}")
     
-    # 5. Model Initialization and Training
-    # We have a deeper and wider network, so the feature list is updated.
+    # 3. Model Parameters and Training
     model_params = {
-        "in_channels": 5,
-        "out_channels": 1,
-        "features_list": [16, 32, 64, 128, 256]
+        'in_channels': 5,
+        'out_channels': 1,
+        'features_list': [8, 16, 32, 64, 128],
     }
     
     print(f'[INFO] Model Parameters:')
     print(f'\t.In Channels: {model_params["in_channels"]}')
     print(f'\t.Out Channels: {model_params["out_channels"]}')
     print(f'\t.Features List: {model_params["features_list"]}')
-    
-    if method == 'transformation':
-        signal_weight = 10.0
-        background_weight = 10.0
-    else:
-        signal_weight = 5.0
-        background_weight = 1.0
+
     training_params = {
-        "signal_weight": signal_weight, "background_weight": background_weight, "signal_threshold": 1e-5 * amplitude_scaling_factor,
-        "learning_rate": 0.00001, "weight_decay": 1e-5, "num_epochs": 200,
-        "scheduler_factor": 0.1, "scheduler_patience": 5
+        'learning_rate': 1e-4,
+        'weight_decay': 1e-5,
+        'scheduler_factor': 0.5,
+        'scheduler_patience': 5,
+        'downsample_factors': [2, 4],
+        'lambda_kl': 10000.0,
+        'lambda_fp': 10.,
+        'lambda_fn': 1.0
     }
     
     print(f'[INFO] Training Parameters:')
-    print(f'\t.Signal Weight: {training_params["signal_weight"]}')
-    print(f'\t.Background Weight: {training_params["background_weight"]}')
-    print(f'\t.Signal Threshold: {training_params["signal_threshold"]}')
     print(f'\t.Learning Rate: {training_params["learning_rate"]}')
     print(f'\t.Weight Decay: {training_params["weight_decay"]}')
-    print(f'\t.Number of Epochs: {training_params["num_epochs"]}')
     print(f'\t.Scheduler Factor: {training_params["scheduler_factor"]}')
     print(f'\t.Scheduler Patience: {training_params["scheduler_patience"]}')
+    print(f'\t.Downsample Factors: {training_params["downsample_factors"]}')
+    print(f'\t.Lambda KL: {training_params["lambda_kl"]}')
+    print(f'\t.Lambda FP: {training_params["lambda_fp"]}')
+    print(f'\t.Lambda FN: {training_params["lambda_fn"]}')
 
     denoising_model = DenoisingModel(model_params, training_params)
     print('[INFO] Number of parameters in the model:', sum(p.numel() for p in denoising_model.model.parameters() if p.requires_grad))
 
     train_losses, val_losses = denoising_model.train_model(
-        train_loader, val_loader, training_params['num_epochs'], early_stopping_patience=5
+        train_loader, val_loader, num_epochs=70
     )
-    # 6. Loss Plotting
-    plt.figure(figsize=(12, 5))
-    plt.plot(train_losses)
-    plt.plot(val_losses)
-    plt.title('Model Loss (Weighted MSE)')
-    plt.ylabel('Loss')
-    plt.xlabel('Epoch')
-    plt.legend(['Train', 'Validation'], loc='upper right')
-    plt.tight_layout()
-    plt.savefig('training_validation_loss.png', dpi=300)
-    plt.close()
-    print("[INFO] Training complete. Loss plots saved.")
 
-    # 7. Visualize Denoising Results
-    plot_denoising_results(
-        denoising_model,
-        histograms_mmap,
-        ct_values,
-        initial_energies,
-        m_indices_to_plot_final,
-        e_indices_to_plot_final,
-        num_materials, num_initial_energies, num_angles, num_final_energies,
-        x_angles_range,
-        y_final_energies_range,
-        amplitude_scaling_factor,
-        directory=directory
+    # 4. Denoising the full dataset and plotting
+    denoised_4d_data = denoise_full_dataset(
+        denoising_model, histograms_mmap, npz_path, original_4d_shape, ct_values, initial_energies
     )
-    print("[INFO] Denoising results plotted and saved.")
+
+    # Save the denoised data
+    save_denoised_npz(denoised_4d_data, "denoised_output_advanced", ct_values, initial_energies, method, extra)
     
-    # 8. Save Denoised Histograms
-    save_denoised_histograms(
-        denoising_model=denoising_model,
-        histograms_mmap=histograms_mmap,
-        npz_path=npz_path,
-        output_filename="denoised_histograms",
-        original_shape=original_4d_shape,
-        hu_values=ct_values,
-        initial_energies=initial_energies,
-        method=method,
-        extra=extra,
-        batch_size=128
+    # Plotting example results
+    num_materials_to_plot = min(num_materials, 10)
+    num_initial_energies_to_plot = min(num_initial_energies, 10)
+    m_indices_to_plot = np.linspace(0, num_materials - 1, num_materials_to_plot, dtype=int)
+    e_indices_to_plot = np.linspace(0, num_initial_energies - 1, num_initial_energies_to_plot, dtype=int)
+    
+    plot_indices = []
+    for m in m_indices_to_plot:
+        for e in e_indices_to_plot:
+            plot_indices.append(m * num_initial_energies + e)
+    
+    # FIX: Pass original_4d_shape to the plotting function
+    plot_denoising_results_from_npz(
+        histograms_mmap, denoised_4d_data, ct_values, initial_energies, method, plot_indices, directory='./plots' ,original_4d_shape=original_4d_shape
     )
-
-    print("\n[INFO] Optimized U-Net based CNN for Noise2Noise denoising is complete.")
     
     # Print keys in the denoised histograms
-    output_filename = f"denoised_histograms_{method}.npz"
-    histogrmas = np.load(output_filename, allow_pickle=True)
-    for key in histogrmas.keys():
-        print(f"Key: {key}, Shape: {histogrmas[key].shape}")
-        
+    output_filename = f"denoised_output_advanced_{method}.npz"
+    histograms = np.load(output_filename, allow_pickle=True)
+    for key in histograms.keys():
+        print(f"Key: {key}, Shape: {histograms[key].shape}")

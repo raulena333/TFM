@@ -55,30 +55,6 @@ class BinningConfig:
         return self.binEdges, self.angleStep, self.energyStep
 
 # --------------- TRANSFORMATION VARIABLE ---------------
-# This class represents a histogram sampler for sampling angles and energies based on a given histogram.
-# It initializes with a histogram, calculates the cumulative distribution function (CDF), and provides a method to sample angles and energies.
-class HistogramSampler:
-
-    def __init__(self, hist : np.ndarray, rng=None):
-        self.hist = hist
-        self.angleBins, self.energyBins = hist.shape
-        self.rng = rng or np.random.default_rng()
-
-        self.flatHist = hist.flatten()
-        self.cumsum = np.cumsum(self.flatHist)
-        self.cumsum /= self.cumsum[-1] 
-        
-    def sample(self, size=1) -> Tuple[np.ndarray, np.ndarray]:
-        randValues = self.rng.random(size)
-        idxs = np.searchsorted(self.cumsum, randValues, side='right')
-        angleIdxs, energyIdxs = np.unravel_index(idxs, (self.angleBins, self.energyBins))
-
-        # Use global binning config
-        angles = binningConfig.angleEdges[angleIdxs] + 0.5 * binningConfig.angleStep
-        energies = binningConfig.energyEdges[energyIdxs] + 0.5 * binningConfig.energyStep
-
-        return angles, energies
-
 @numba.jit(parallel=True)
 def buildCdfsFromProbTable(probTable):
     numMaterials, numEnergies, angleBins, energyBins = probTable.shape
@@ -86,7 +62,7 @@ def buildCdfsFromProbTable(probTable):
 
     cdfs = np.empty((numMaterials, numEnergies, totalBins), dtype=np.float32)
 
-    for m in prange(numMaterials):  # parallel over materials
+    for m in range(numMaterials):  # parallel over materials
         for e in range(numEnergies):
             flatProbTable = probTable[m, e].ravel()  # flatten 2D bin table
             cdf = np.empty_like(flatProbTable)
@@ -95,26 +71,16 @@ def buildCdfsFromProbTable(probTable):
                 total += flatProbTable[i]
                 cdf[i] = total
             norm = cdf[-1]
-            for i in range(totalBins):  # normalize manually
-                cdf[i] /= norm
-                cdfs[m, e, i] = cdf[i]
+            
+            if norm == 0.0:  # handle zero norm case
+                # Set CDF to zeros if total probability is zero (expected for some low energies)
+                cdfs[m, e, :] = 0
+            else:
+                for i in range(totalBins):  # normalize manually
+                    cdf[i] /= norm
+                    cdfs[m, e, i] = cdf[i]
 
     return cdfs
-
-# --------------- TRANSFORMATION VARIABLE --------------
-def prebuildSamplers(data : dict, angleRange : tuple, energyRange : tuple, materialToIndex : dict):
-    global samplerCache, binningConfig
-
-    # Create global binning config
-    angleBins, energyBins = data['probTable'].shape[2:]
-    binningConfig = BinningConfig(angleRange, energyRange, angleBins, energyBins)
-
-    for materialIdx in materialToIndex.values():
-        for energyIdx in range(len(data['energies'])):
-            cacheKey = (materialIdx, energyIdx)
-            if cacheKey not in samplerCache:
-                hist = data['probTable'][materialIdx, energyIdx]
-                samplerCache[cacheKey] = HistogramSampler(hist)
                 
 # --------------- TRANSFORMATION VARIABLE --------------
 @numba.jit(nopython=True, inline = 'always') 
@@ -189,103 +155,6 @@ def sampleFromCDFVectorizedTransformation(data: dict, materials: np.ndarray, ene
             #print('survivalProb', survivalProb)
             
             survived[particleIndices] = randVals[maskUnique] < survivalProb
-            
-        # Get unique materials present in the in-range particles
-        # uniqueMaterials = np.unique(materials[inRangeIndices])
-
-        # for material in uniqueMaterials:
-        #     # Indices of particles of this material and in energy range
-        #     mask = (materials[inRangeIndices] == material)
-        #     particleIndices = inRangeIndices[mask]
-            
-        #     # Get escape table for this material
-        #     escapeTable = escapeProbs[material]
-        #     eTable = escapeTable[:, 0]
-        #     pTable = escapeTable[:, 1]
-            
-        #     # Energies of these particles
-        #     energiesForMaterial = energies[particleIndices]
-            
-        #     # Prepare arrays for interpolation results
-        #     survivalProbs = np.zeros_like(energiesForMaterial)
-            
-        #     # For each particle energy, find index i and weight t for Catmull-Rom
-        #     for idx, energyVal in enumerate(energiesForMaterial):
-        #         i = np.searchsorted(eTable, energyVal) - 1
-        #         i = max(1, min(i, len(eTable) - 3))
-        #         t = (energyVal - eTable[i]) / (eTable[i + 1] - eTable[i])
-                
-        #         f_1, f0, f1, f2 = getCatmullRomPoints(pTable, i)
-        #         survivalProbs[idx] = catMullRomInterpolation(f_1, f0, f1, f2, t)
-            
-        #     # print('SurvivalProbs', survivalProbs)
-            
-        #     # Generate random values to decide survival
-        #     randVals = np.random.random(size=particleIndices.size)
-            
-        #     # Compare random values to interpolated survival probabilities
-        #     survived[particleIndices] = randVals < survivalProbs
-        
-        # # Get unique materials present in the in-range particles
-        # uniqueMaterials = np.unique(materials[inRangeIndices])
-
-        # for material in uniqueMaterials:
-        #     mask = (materials[inRangeIndices] == material)
-        #     particleIndices = inRangeIndices[mask]
-
-        #     escapeTable = escapeProbs[material]
-        #     eTable = escapeTable[:, 0]
-        #     pTable = escapeTable[:, 1]
-
-        #     energiesForMaterial = energies[particleIndices]
-        #     survivalProbs = np.zeros_like(energiesForMaterial)
-
-        #     for idx, energyVal in enumerate(energiesForMaterial):
-        #         i = np.searchsorted(eTable, energyVal) - 1
-        #         i = max(1, min(i, len(eTable) - 2))  # to have i-1 and i+1 safely
-
-        #         x_1, y_1 = eTable[i-1], pTable[i-1]
-        #         x0, y0 = eTable[i], pTable[i]
-        #         x1, y1 = eTable[i+1], pTable[i+1]
-
-        #         survivalProb = quadraticInterpolation(x_1, y_1, x0, y0, x1, y1, energyVal)
-
-        #         # Clamp survival probability to [0, 1]
-        #         survivalProb = np.clip(survivalProb, 0, 1)
-
-        #         survivalProbs[idx] = survivalProb
-
-        #     randVals = np.random.random(size=particleIndices.size)
-        #     survived[particleIndices] = randVals < survivalProbs
-        
-        # Get unique materials present in the in-range particles
-        # uniqueMaterials = np.unique(materials[inRangeIndices])
-        # for material in uniqueMaterials:
-        #     # Get indices of particles with this material
-        #     mask = (materials[inRangeIndices] == material)
-        #     particleIndices = inRangeIndices[mask]
-
-        #     # Escape probability table for this material
-        #     escapeTable = escapeProbs[material]
-        #     eTable = escapeTable[:, 0]
-        #     pTable = escapeTable[:, 1]
-
-        #     # Particle energies for this material
-        #     energiesForMaterial = energies[particleIndices]
-        #     survivalProbs = np.zeros_like(energiesForMaterial)
-
-        #     for idx, energyVal in enumerate(energiesForMaterial):
-        #         i = np.searchsorted(eTable, energyVal) - 1
-        #         i = np.clip(i, 0, len(eTable) - 2)  # Ensure i and i+1 are valid indices
-
-        #         x0, y0 = eTable[i], pTable[i]
-        #         x1, y1 = eTable[i + 1], pTable[i + 1]
-
-        #         survivalProb = linearInterpolation(x0, y0, x1, y1, energyVal)
-        #         survivalProbs[idx] = np.clip(survivalProb, 0.0, 1.0)
-
-        #     randVals = np.random.random(size=particleIndices.size)
-        #     survived[particleIndices] = randVals < survivalProbs
     
     sampledMask = survived     
     if np.any(sampledMask):  
@@ -1046,17 +915,6 @@ def getCatmullRomPoints(array, i):
     f2  = array[min(i + 2, n - 1)]
     return f_1, f0, f1, f2
 
-# --------------- COMMON FUNCTIONS ---------------
-def quadraticInterpolation(x_1, y_1, x0, y0, x1, y1, x):
-    L_1 = ((x - x0)*(x - x1)) / ((x_1 - x0)*(x_1 - x1))
-    L0 = ((x - x_1)*(x - x1)) / ((x0 - x_1)*(x0 - x1))
-    L1 = ((x - x_1)*(x - x0)) / ((x1 - x_1)*(x1 - x0))
-    return y_1*L_1 + y0*L0 + y1*L1
-
-# --------------- COMMON FUNCTIONS ---------------
-def linearInterpolation(x0, y0, x1, y1, x):
-    return y0 + (y1 - y0) * ((x - x0) / (x1 - x0))
-
         
 # --------------- COMMON FUNCTIONS ---------------
 def simulateBatchParticlesWorker(args):
@@ -1352,7 +1210,7 @@ if __name__ == "__main__":
     voxelShapeBins = np.array((50, 50, 300), dtype=np.int32)
     voxelSize = 2 * bigVoxelSize / voxelShapeBins # in mm 
     
-    angleRange = (0, 200)
+    angleRange = (0, 70)
     energyRange = (-0.6, 0)
     angleBins = 100
     energyBins = 100

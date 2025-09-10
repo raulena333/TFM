@@ -259,7 +259,7 @@ if __name__ == "__main__":
     print(f"Selected method: {methodTable}")
 
     # Variables    
-    numberOfProtons = 1_000_000 # Number of protons to simulate
+    numberOfProtons = 100_000 # Number of protons to simulate
     dataPath = '~/G4Data/'
     
     baseFolder = {
@@ -287,8 +287,7 @@ if __name__ == "__main__":
     # Concatenate both segments
     energies = np.concatenate((highSegment, lowSegment))
 
-    materials = ['G4_LUNG_ICRP', 'G4_WATER', 'G4_BONE_CORTICAL_ICRP', 'G4_TISSUE_SOFT_ICRP'
-                ] # Materials to simulate
+    materials = ['G4_LUNG_ICRP'] # Materials to simulate
     densities = [1.04, 1.0, 1.92, 1.03] # g/cm^3
      
     # G4_WATER'             9.0 MeV  #8.9,8.8,8.7

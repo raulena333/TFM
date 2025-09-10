@@ -49,9 +49,9 @@ s:So/MySource/BeamAngularDistribution = "None"
 #d:So/MySource/BeamAngularSpreadX = 0.0032 rad
 #d:So/MySource/BeamAngularSpreadY = 0.0032 rad
 s:So/MySource/BeamEnergySpectrumType = "Discrete"
-dv:So/MySource/BeamEnergySpectrumValues = 1 200.0 MeV
+dv:So/MySource/BeamEnergySpectrumValues = 1 8.7 MeV
 uv:So/MySource/BeamEnergySpectrumWeights = 1 1.0
-i:So/MySource/NumberOfHistoriesInRun = 10000000
+i:So/MySource/NumberOfHistoriesInRun = 100000
 #i:So/MySource/NumberOfHistoriesInRandomJob = 0
 
 ####################################################
@@ -82,7 +82,7 @@ s:Sc/MyScorer1/OnlyIncludeParticlesOfGeneration = "Primary"
 #b:Gr/MyOGL/IncludeAxes = "True"
 #b:Gr/Enable = "True"
 i:Gr/Verbosity = 0
-i:Ts/NumberOfThreads = 0
+i:Ts/NumberOfThreads = 10
 s:Gr/RefreshEvery = "Run"
 i:Ts/Seed = 777905
 b:Ts/ShowCPUTime = "True"

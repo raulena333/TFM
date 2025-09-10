@@ -32,7 +32,7 @@ def process_and_save_npz(input_file_path: str, output_file_path: str):
                 # Check the shape to ensure it's safe to slice
                 if original_histograms.ndim >= 1 and original_histograms.shape[0] > 0:
                     # Slice the array to get the first element along the first axis
-                    sliced_histograms = original_histograms[0]
+                    sliced_histograms = original_histograms[1]
                     new_data['probTable'] = sliced_histograms
                     print(f" - Sliced 'histograms' array. New shape: {sliced_histograms.shape}")
                 else:
@@ -67,12 +67,12 @@ if __name__ == "__main__":
     
     if args.transformation:
         method = 'transformation'
-        input_file = './DenoisingDataTransSheet.npz'
-        output_file = './DenoisingDataTransSheetSliced.npz'
+        input_file = './DenoiseTable/DenoisingDataTransSheet.npz'
+        output_file = './DenoiseTable/MMD/DenoisingDataTransSheetSliced.npz'
     else: # This will be args.normalization
         method = 'normalization'
-        input_file = './DenoisingDataNormSheet.npz'
-        output_file = './DenoisingDataNormSheetSliced.npz'
+        input_file = './DenoiseTable/DenoisingDataNormSheet.npz'
+        output_file = './DenoiseTable/MMD/DenoisingDataNormSheetSliced.npz'
 
     process_and_save_npz(input_file, output_file)
 

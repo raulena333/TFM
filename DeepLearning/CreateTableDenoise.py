@@ -113,20 +113,15 @@ def runTopas(filePath, dataPath):
             
     except FileNotFoundError:
         print("TOPAS executable not found. Make sure TOPAS is installed and in your PATH.")
-        
-
-import numpy as np
-import os
-from typing import Optional, Tuple
 
 def calculateAngleEnergyProbabilities(
     fileName: str,
     numberOfBins: int,
-    globalMinTheta: Optional[float] = None,
-    globalMaxTheta: Optional[float] = None,
-    globalMinEnergy: Optional[float] = None,
-    globalMaxEnergy: Optional[float] = None
-) -> Tuple[np.ndarray, np.ndarray, float, float, float, float]:
+    globalMinTheta: float = None,
+    globalMaxTheta: float = None,
+    globalMinEnergy: float = None,
+    globalMaxEnergy: float = None
+):
     """
     Calculates and returns 2D histograms with consistent normalization.
     
@@ -206,16 +201,8 @@ def calculateAngleEnergyProbabilities(
                                      range=([0, threshold[2]], [threshold[1], threshold[0]]))
     
     # --- NORMALIZED ENERGY PATH ---
-    # Check for division by zero before normalization
-    if (globalMaxTheta - globalMinTheta) == 0:
-        angle_N_norm = np.zeros_like(angle)
-    else:
-        angle_N_norm = (angle - globalMinTheta) / (globalMaxTheta - globalMinTheta)
-
-    if (globalMaxEnergy - globalMinEnergy) == 0:
-        energy_Norm = np.zeros_like(finalEnergy)
-    else:
-        energy_Norm = (finalEnergy - globalMinEnergy) / (globalMaxEnergy - globalMinEnergy)
+    angle_N_norm = (angle - globalMinTheta) / (globalMaxTheta - globalMinTheta)
+    energy_Norm = (finalEnergy - globalMinEnergy) / (globalMaxEnergy - globalMinEnergy)
     
     histNorm, _, _ = np.histogram2d(angle_N_norm, energy_Norm,
                                     bins=numberOfBins,
@@ -294,7 +281,7 @@ if __name__ == "__main__":
            
     # Re run each simulation two times with different seeds and number of protons
     numberOfRuns = 2 # First run variable x_1 (noisy), x_2 (noisy),
-    numberOfProtons = [10000, 10000, 
+    numberOfProtons = [100, 100, 
                        # 10000000
                     ]  # Number of protons for each run
     
@@ -305,7 +292,7 @@ if __name__ == "__main__":
     print(histogramsNorm.shape)
     print(histogramsTrans.shape)
     
-    thetaMaxArray = np.empty((numberOfRuns, numberOfMaterials, numberOfEnergies))
+    thetaMaxArray = np.empty((1, numberOfMaterials, numberOfEnergies))
     thetaMinArray = np.empty_like(thetaMaxArray)
     finalEnergyMinArray = np.empty_like(thetaMaxArray)
     finalEnergyMaxArray = np.empty_like(thetaMaxArray)
@@ -348,8 +335,8 @@ if __name__ == "__main__":
                     (finalProbabilitiesTrans, 
                     finalProbabilitiesNorm, 
                     maxTheta, minTheta, 
-                    finalEnergyMin, finalEnergyMax) = calculateAngleEnergyProbabilities(
-                        fileName=dataPath,
+                    finalEnergyMax, finalEnergyMin) = calculateAngleEnergyProbabilities(
+                        fileName=fileName,
                         numberOfBins=numberOfBins
                     )
                     
@@ -363,8 +350,8 @@ if __name__ == "__main__":
                     (finalProbabilitiesTrans, 
                     finalProbabilitiesNorm, 
                     maxTheta, minTheta, 
-                    finalEnergyMin, finalEnergyMax) = calculateAngleEnergyProbabilities(
-                        fileName=dataPath,
+                    finalEnergyMax, finalEnergyMin) = calculateAngleEnergyProbabilities(
+                        fileName=fileName,
                         numberOfBins=numberOfBins,
                         globalMinTheta=minTheta_norm,
                         globalMaxTheta=maxTheta_norm,
@@ -376,10 +363,11 @@ if __name__ == "__main__":
                 # Store the results in the appropriate arrays
                 histogramsTrans[run, i_mat, i_E] = finalProbabilitiesTrans
                 histogramsNorm[run, i_mat, i_E] = finalProbabilitiesNorm
-                thetaMaxArray[run, i_mat, i_E] = maxTheta
-                thetaMinArray[run, i_mat, i_E] = minTheta
-                finalEnergyMinArray[run, i_mat, i_E] = finalEnergyMin
-                finalEnergyMaxArray[run, i_mat, i_E] = finalEnergyMax
+                if run == 0:
+                    thetaMaxArray[run, i_mat, i_E] = maxTheta
+                    thetaMinArray[run, i_mat, i_E] = minTheta
+                    finalEnergyMinArray[run, i_mat, i_E] = finalEnergyMin
+                    finalEnergyMaxArray[run, i_mat, i_E] = finalEnergyMax
                 
                 overall_pbar.update(1)
     
@@ -403,3 +391,4 @@ if __name__ == "__main__":
     print(np.isinf(histogramsNorm).any())
     print(np.isnan(histogramsTrans).any())
     print(np.isinf(histogramsTrans).any())
+    

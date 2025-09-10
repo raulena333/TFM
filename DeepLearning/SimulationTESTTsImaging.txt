@@ -1,0 +1,133 @@
+####################################################
+# Geometry 
+####################################################
+# World:
+s:Ge/World/Type = "TsBox"
+s:Ge/World/Material = "Vacuum"
+b:Ge/World/Invisible = "TRUE"
+
+# TestBox
+b:Ma/MyMixture/BuildFromMaterials = "True"
+sv:Ma/MyMixture/Components = 16 "G4_H" "G4_C" "G4_N" "G4_O" "G4_Ca" "G4_P" "G4_Na" "G4_Mg" "G4_S" "G4_Cl" "G4_K" "G4_Fe" "G4_I" "G4_F" "G4_Sb" "G4_Sn"
+uv:Ma/MyMixture/Fractions = 16 0.06993 0.34410 0.02812 0.36875 0.12902 0.05506 0.00100 0.00100 0.00201 0.00100 0.00001 0.00000 0.00000 0.00000 0.00000 0.00000
+d:Ma/MyMixture/Density = 1.33083 g/cm3
+
+# First box: Water (from -150 mm to 0 mm in Z)
+s:Ge/WaterBox/Type = "TsBox"
+s:Ge/WaterBox/Parent = "World"
+s:Ge/WaterBox/Material = "G4_WATER"
+d:Ge/WaterBox/HLX = 100. mm
+d:Ge/WaterBox/HLY = 100. mm
+d:Ge/WaterBox/HLZ = 75. mm
+d:Ge/WaterBox/TransX = 0. mm
+d:Ge/WaterBox/TransY = 0. mm
+d:Ge/WaterBox/TransZ = -75. mm
+i:Ge/WaterBox/XBins = 50
+i:Ge/WaterBox/YBins = 50
+i:Ge/WaterBox/ZBins = 150
+
+# Second box: MyMixture (from 0 mm to 150 mm in Z)
+s:Ge/MixtureBox/Type = "TsBox"
+s:Ge/MixtureBox/Parent = "World"
+s:Ge/MixtureBox/Material = "MyMixture"
+d:Ge/MixtureBox/HLX = 100. mm
+d:Ge/MixtureBox/HLY = 100. mm
+d:Ge/MixtureBox/HLZ = 75. mm
+d:Ge/MixtureBox/TransX = 0. mm
+d:Ge/MixtureBox/TransY = 0. mm
+d:Ge/MixtureBox/TransZ = 75. mm
+i:Ge/MixtureBox/XBins = 50
+i:Ge/MixtureBox/YBins = 50
+i:Ge/MixtureBox/ZBins = 150
+
+# BeamPosition:
+s:Ge/BeamPosition/Type = "Group"
+s:Ge/BeamPosition/Parent  = "World"
+d:Ge/BeamPosition/TransX = 0. mm
+d:Ge/BeamPosition/TransY = 0. mm
+d:Ge/BeamPosition/TransZ = 151.0 mm
+
+####################################################
+# Scoring for WaterBox
+####################################################
+s:Sc/EnergyAtWater/Quantity = "EnergyDeposit"
+s:Sc/EnergyAtWater/Component = "WaterBox"
+s:Sc/EnergyAtWater/OutputFile = "EnergyAtWaterByBinsTOPAS"
+s:Sc/EnergyAtWater/IfOutputFileAlreadyExists = "Overwrite"
+
+s:Sc/FluenceAtWater/Quantity = "Fluence"
+s:Sc/FluenceAtWater/Component = "WaterBox"
+s:Sc/FluenceAtWater/OutputFile = "FluenceAtWaterByBinsTOPAS"
+s:Sc/FluenceAtWater/IfOutputFileAlreadyExists = "Overwrite"
+
+s:Sc/EnergyFluenceAtWater/Quantity = "EnergyFluence"
+s:Sc/EnergyFluenceAtWater/Component = "WaterBox"
+s:Sc/EnergyFluenceAtWater/OutputFile = "EnergyFluenceAtWaterByBinsTOPAS"
+s:Sc/EnergyFluenceAtWater/OutputType = "csv"
+s:Sc/EnergyFluenceAtWater/IfOutputFileAlreadyExists = "Overwrite"
+
+####################################################
+# Scoring for MixtureBox
+####################################################
+s:Sc/EnergyAtMixture/Quantity = "EnergyDeposit"
+s:Sc/EnergyAtMixture/Component = "MixtureBox"
+s:Sc/EnergyAtMixture/OutputFile = "EnergyAtMixtureByBinsTOPAS"
+s:Sc/EnergyAtMixture/IfOutputFileAlreadyExists = "Overwrite"
+
+s:Sc/FluenceAtMixture/Quantity = "Fluence"
+s:Sc/FluenceAtMixture/Component = "MixtureBox"
+s:Sc/FluenceAtMixture/OutputFile = "FluenceAtMixtureByBinsTOPAS"
+s:Sc/FluenceAtMixture/IfOutputFileAlreadyExists = "Overwrite"
+
+s:Sc/EnergyFluenceAtMixture/Quantity = "EnergyFluence"
+s:Sc/EnergyFluenceAtMixture/Component = "MixtureBox"
+s:Sc/EnergyFluenceAtMixture/OutputFile = "EnergyFluenceAtMixtureByBinsTOPAS"
+s:Sc/EnergyFluenceAtMixture/OutputType = "csv"
+s:Sc/EnergyFluenceAtMixture/IfOutputFileAlreadyExists = "Overwrite"
+
+####################################################
+# Beam Source
+####################################################
+s:So/MySource/Type = "Beam" 
+s:So/MySource/Component = "BeamPosition"
+s:So/MySource/BeamParticle = "proton"
+s:So/MySource/BeamPositionDistribution = "None"
+#s:So/MySource/BeamPositionCutoffShape = "Ellipse"
+#d:So/MySource/BeamPositionCutoffX = 10. cm
+#d:So/MySource/BeamPositionCutoffY = 10. cm
+#d:So/MySource/BeamPositionSpreadX = 0.65 cm
+#d:So/MySource/BeamPositionSpreadY = 0.65 cm
+s:So/MySource/BeamAngularDistribution = "None" 
+#d:So/MySource/BeamAngularCutoffX = 90. deg
+#d:So/MySource/BeamAngularCutoffY = 90. deg
+#d:So/MySource/BeamAngularSpreadX = 0.0032 rad
+#d:So/MySource/BeamAngularSpreadY = 0.0032 rad
+s:So/MySource/BeamEnergySpectrumType = "Discrete"
+dv:So/MySource/BeamEnergySpectrumValues = 1 200 MeV
+uv:So/MySource/BeamEnergySpectrumWeights = 1 1.0
+i:So/MySource/NumberOfHistoriesInRun = 10000000
+#i:So/MySource/NumberOfHistoriesInRandomJob = 0
+
+####################################################
+# Visualization
+####################################################
+#s:Gr/MyOGL/Type = "OpenGL"
+#i:Gr/MyOGL/WidnowSizeX = 600
+#i:Gr/MyOGL/WindowSizeY = 600
+#d:Gr/MyOGL/Theta = 70 deg
+#d:Gr/MyOGL/Phi = 20 deg
+#s:Gr/MyOGL/Projection = "Perspective"
+#d:Gr/MyOGL/PerspectiveAngle = 60 deg
+#b:Gr/MyOGL/IncludeAxes = "True"
+#b:Gr/Enable = "True"
+i:Gr/Verbosity = 0
+i:Ts/NumberOfThreads = 0
+i:Ts/ParameterizationErrorMaxReports = 1
+s:Gr/RefreshEvery = "Run"
+i:Ts/Seed = 98765416
+b:Ts/ShowCPUTime = "True"
+#b:Ts/UseQt = "True"
+#b:Gr/MyOGL/CopyOpenGLToPDF = "TRUE"
+
+sv:Ph/Default/Modules = 1 "g4em-standard_opt0"
+#b:Ts/PauseBeforeQuit = "True"

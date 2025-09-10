@@ -24,8 +24,53 @@ except ImportError:
     mixed_precision_available = False
     print("[INFO] PyTorch AMP (Mixed Precision) is not available. Training will run in full precision.")
 
+
+def _rbf_kernel(x, y, gamma):
+    """
+    Computes the Gaussian Radial Basis Function (RBF) kernel matrix.
+    This kernel measures the similarity between two points in a feature space.
+    A larger value indicates greater similarity. It is used here to compare
+    the embeddings from the feature extractor.
+    """
+    # Calculate the squared Euclidean distance between each pair of points
+    x_sqnorms = torch.sum(x * x, dim=1)
+    y_sqnorms = torch.sum(y * y, dim=1)
+    xy_matmul = torch.matmul(x, y.T)
+    distances_sq = (
+        torch.unsqueeze(x_sqnorms, 1)
+        + torch.unsqueeze(y_sqnorms, 0)
+        - 2 * xy_matmul
+    )
+    # Clamp to avoid numerical instability
+    distances_sq = torch.clamp(distances_sq, min=0.0)
+    # Apply the RBF kernel function: exp(-gamma * distance^2)
+    kernel_matrix = torch.exp(-gamma * distances_sq)
+    return kernel_matrix
+
+def mmd_loss(x, y, sigma):
+    """
+    Calculates the Maximum Mean Discrepancy (MMD) loss.
+    MMD measures the distance between the distributions of two sets of samples,
+    'x' and 'y', by mapping them into a reproducing kernel Hilbert space.
+    This helps ensure the denoised images have the same statistical properties as
+    the ground truth images.
+    """
+    x = x.float()
+    y = y.float()
+    # Gamma is a parameter for the kernel, derived from sigma (the kernel's bandwidth)
+    gamma = 1.0 / (2 * sigma**2)
+    # Calculate the kernel matrices for x vs x, y vs y, and x vs y
+    k_xx = _rbf_kernel(x, x, gamma)
+    k_yy = _rbf_kernel(y, y, gamma)
+    k_xy = _rbf_kernel(x, y, gamma)
+    # The MMD squared formula is mean(k_xx) + mean(k_yy) - 2 * mean(k_xy)
+    mmd_sq = torch.mean(k_xx) + torch.mean(k_yy) - 2 * torch.mean(k_xy)
+    # Clamp to ensure the loss is not negative due to floating-point errors
+    mmd_sq = torch.clamp(mmd_sq, min=0.0)
+    return mmd_sq
+
 # --- 2. Global Constants ---
-amplitude_scaling_factor = 1.0
+amplitude_scaling_factor = 1000.0
 
 # --- 3. Data Loading Function (Refactored for memory-efficiency) ---
 def load_data_and_metadata_from_npz(method, npz_path):
@@ -212,6 +257,29 @@ class SelfAttentionBottleneck(nn.Module):
         out = x + attn_output_reshaped
         return out
 
+class FeatureExtractor(nn.Module):
+    """
+    A simple, pre-trained CNN to extract a compact vector embedding from a
+    histogram image. This model is frozen during training and acts as a
+    fixed feature space for the MMD loss calculation.
+    """
+    def __init__(self, in_channels=1):
+        super(FeatureExtractor, self).__init__()
+        self.encoder = nn.Sequential(
+            nn.Conv2d(in_channels, 32, kernel_size=4, stride=2, padding=1),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=1),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(128, 256, kernel_size=4, stride=2, padding=1),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.AdaptiveAvgPool2d(1)
+        )
+    def forward(self, x):
+        x = self.encoder(x)
+        return x.view(x.size(0), -1)
+
 # --- 3. Rewritten Denoising U-Net with UpsampleBlock and Interpolation ---
 class DenoisingUNet(nn.Module):
     """
@@ -266,7 +334,7 @@ class DenoisingUNet(nn.Module):
         
         # Final output convolution
         self.final_conv = nn.Conv2d(features_list[0], out_channels, kernel_size=1)
-        self.final_activation = nn.ReLU()
+        # self.final_activation = nn.ReLU()
     
     def forward(self, x):
         # Encoder pass
@@ -318,25 +386,139 @@ class DenoisingUNet(nn.Module):
         dec4_out = self.dropout8(dec4_out)
         
         logits = self.final_conv(dec4_out)
-        output = self.final_activation(logits)
+        # output = self.final_activation(logits)
         
-        return output
+        return logits
+    
+# class HybridDenoisingLoss(nn.Module):
+#     """
+#     A multi-scale hybrid loss function combining KLDivLoss for probabilistic shape learning
+#     and L1Loss for magnitude and sparsity correction across multiple resolutions.
+
+#     This loss encourages the model to learn both the correct overall shape of the
+#     distribution and to drive small, noisy values towards zero at different scales,
+#     which is particularly effective for low-statistic, sparse data.
+#     """
+#     def __init__(self, kl_weight=1.0, l1_weight=1.0, downsample_factors=None, downsample_weights=None):
+#         """
+#         Initializes the hybrid loss with customizable weighting factors and multi-scale settings.
+
+#         Args:
+#             kl_weight (float): The global weighting factor for the KL divergence loss.
+#             l1_weight (float): The global weighting factor for the L1 loss.
+#             downsample_factors (list of int, optional): A list of downsampling factors to apply.
+#                                                       For example, [2, 4, 8]. The original
+#                                                       resolution is not included in this list.
+#             downsample_weights (list of float, optional): A list of scalar weights corresponding
+#                                                         to each downsampled loss. Must be the
+#                                                         same length as `downsample_factors`.
+#         """
+#         super(HybridDenoisingLoss, self).__init__()
+        
+#         # PyTorch's KLDivLoss for distribution shape matching.
+#         self.kl_loss_fn = nn.KLDivLoss(reduction='batchmean')
+        
+#         # PyTorch's L1Loss for magnitude and sparsity correction.
+#         self.l1_loss_fn = nn.L1Loss(reduction='mean')
+        
+#         self.kl_weight = kl_weight
+#         self.l1_weight = l1_weight
+        
+#         # Downsampling settings for multi-scale loss.
+#         self.downsample_factors = downsample_factors if downsample_factors is not None else []
+#         self.downsample_weights = downsample_weights if downsample_weights is not None else [1.0] * len(self.downsample_factors)
+        
+#         # Print the initialization for debugging and verification.
+#         print(f"[INFO] Initializing Multi-Scale HybridDenoisingLoss.")
+#         print(f"[INFO] Global KL_weight={self.kl_weight} and L1_weight={self.l1_weight}")
+#         print(f"[INFO] Downsampling factors: {self.downsample_factors}")
+#         print(f"[INFO] Corresponding downsample weights: {self.downsample_weights}")
+
+#     def forward(self, inputs, targets):
+#         """
+#         Calculates the total hybrid loss.
+
+#         Args:
+#             inputs (torch.Tensor): Raw model outputs (logits), shape (B, 1, H, W).
+#             targets (torch.Tensor): True targets (probabilities), shape (B, 1, H, W).
+            
+#         Returns:
+#             torch.Tensor: The calculated total hybrid loss.
+#         """
+#         # --- 1. Calculate KL Divergence Loss on original inputs ---
+#         # Reshape inputs to (B, N) where N = H * W for batch-wise softmax.
+#         B, C, H, W = inputs.shape
+#         inputs_reshaped = inputs.view(B, -1)
+        
+#         # Apply log_softmax to convert logits to log-probabilities. This is
+#         # the required format for KLDivLoss's `inputs` argument.
+#         log_outputs = F.log_softmax(inputs_reshaped, dim=1)
+        
+#         # Reshape the log-probabilities back to the original shape to match targets.
+#         log_outputs = log_outputs.view(B, C, H, W)
+
+#         # The KLDivLoss measures how one probability distribution (model output)
+#         # is different from a second, reference probability distribution (target).
+#         kl_loss_val = self.kl_loss_fn(log_outputs, targets)
+        
+#         # --- 2. Calculate L1 Loss on original inputs ---
+#         # Apply softmax to the raw logits to get the model's output as
+#         # a probability distribution. This is used for the L1 comparison.
+#         outputs_reshaped = F.softmax(inputs.view(B, -1), dim=1)
+#         outputs_prob = outputs_reshaped.view(B, C, H, W)
+        
+#         # The L1 loss compares the predicted probability magnitudes to the target
+#         # magnitudes, helping to enforce sparsity and prevent over-smoothing.
+#         l1_loss_val = self.l1_loss_fn(outputs_prob, targets)
+        
+#         # --- 3. Combine the Losses at the original scale ---
+#         total_loss = (self.kl_weight * kl_loss_val) + (self.l1_weight * l1_loss_val)
+
+#         # --- 4. Add multi-scale loss components from downsampled data ---
+#         for i, factor in enumerate(self.downsample_factors):
+#             weight = self.downsample_weights[i]
+            
+#             # Downsample the inputs and targets using average pooling.
+#             downsampled_inputs = F.avg_pool2d(
+#                 inputs, 
+#                 kernel_size=factor, 
+#                 stride=factor
+#             )
+#             downsampled_targets = F.avg_pool2d(
+#                 targets, 
+#                 kernel_size=factor, 
+#                 stride=factor
+#             )
+            
+#             # Calculate KL loss on the downsampled data.
+#             B_d, C_d, H_d, W_d = downsampled_inputs.shape
+#             downsampled_inputs_reshaped = downsampled_inputs.view(B_d, -1)
+#             downsampled_log_outputs = F.log_softmax(downsampled_inputs_reshaped, dim=1)
+#             downsampled_log_outputs = downsampled_log_outputs.view(B_d, C_d, H_d, W_d)
+#             kl_loss_downsampled = self.kl_loss_fn(downsampled_log_outputs, downsampled_targets)
+
+#             # Calculate L1 loss on the downsampled data.
+#             downsampled_outputs_prob = F.softmax(downsampled_inputs_reshaped, dim=1).view(B_d, C_d, H_d, W_d)
+#             l1_loss_downsampled = self.l1_loss_fn(downsampled_outputs_prob, downsampled_targets)
+            
+#             # Combine the downsampled losses and add to the total.
+#             total_loss += weight * (self.kl_weight * kl_loss_downsampled + self.l1_weight * l1_loss_downsampled)
+
+#         return total_loss
     
 # --- 6. Loss Function ---
 class HybridDenoisingLoss(nn.Module):
     """
     A hybrid loss function combining KLDivLoss for probabilistic shape learning
-    and L1Loss (Mean Absolute Error) for magnitude and sparsity correction,
-    with added support for multiscale loss calculation.
+    and L1Loss (Mean Absolute Error) for magnitude and sparsity correction.
 
     This loss is particularly effective for low-statistic, sparse data, as it
     encourages the model to learn both the correct overall shape of the distribution
-    and to drive small, noisy values towards zero. The multiscale component
-    improves learning by considering features at various resolutions.
+    and to drive small, noisy values towards zero.
     """
-    def __init__(self, kl_weight=1.0, l1_weight=1.0, downsample_factors=None, downsample_weights=None):
+    def __init__(self, kl_weight=1.0, l1_weight=1.):
         """
-        Initializes the hybrid loss with customizable weighting factors and multiscale options.
+        Initializes the hybrid loss with customizable weighting factors.
 
         Args:
             kl_weight (float): The weighting factor for the KL divergence loss.
@@ -345,14 +527,13 @@ class HybridDenoisingLoss(nn.Module):
             l1_weight (float): The weighting factor for the L1 loss.
                                This component encourages sparsity and corrects
                                for the magnitude of the predicted values.
-            downsample_factors (list of int, optional): A list of downsampling factors.
-                                                        For each factor, the loss will
-                                                        be calculated on a downsampled
-                                                        version of the inputs.
-            downsample_weights (list of float, optional): A list of weights corresponding
-                                                          to each downsample factor.
-                                                          Must have the same length as
-                                                          `downsample_factors`.
+            downsample_factors (list of int, optional): A list of downsampling factors to apply.
+                                                      For example, [2, 4, 8]. The original
+                                                      resolution is not included by default
+                                                      and must be specified as `1`.
+            downsample_weights (list of float, optional): A list of scalar weights corresponding
+                                                        to each downsampling factor. Must be the
+                                                        same length as `downsample_factors`.
         """
         super(HybridDenoisingLoss, self).__init__()
         
@@ -368,17 +549,8 @@ class HybridDenoisingLoss(nn.Module):
         self.kl_weight = kl_weight
         self.l1_weight = l1_weight
         
-        if downsample_factors is not None and downsample_weights is not None:
-            if len(downsample_factors) != len(downsample_weights):
-                raise ValueError("downsample_factors and downsample_weights must have the same length.")
-        
-        self.downsample_factors = downsample_factors
-        self.downsample_weights = downsample_weights
-
         print(f"[INFO] Initializing HybridDenoisingLoss with KL_weight={self.kl_weight} and L1_weight={self.l1_weight}")
         print("[INFO] This loss is designed for low-statistic, sparse data.")
-        if self.downsample_factors:
-            print(f"[INFO] Multiscale loss enabled with factors: {self.downsample_factors}")
 
     def forward(self, inputs, targets):
         """
@@ -391,43 +563,36 @@ class HybridDenoisingLoss(nn.Module):
         Returns:
             torch.Tensor: The calculated total hybrid loss.
         """
-        # --- 1. Calculate KL Divergence Loss and L1 Loss at the original scale ---
+        # --- 1. Calculate KL Divergence Loss ---
+        # Reshape inputs to (B, N) where N = H * W for batch-wise softmax.
         B, C, H, W = inputs.shape
         inputs_reshaped = inputs.view(B, -1)
         
+        # Apply log_softmax to convert logits to log-probabilities. This is
+        # the required format for KLDivLoss's `inputs` argument.
         log_outputs = F.log_softmax(inputs_reshaped, dim=1)
+        
+        # Reshape the log-probabilities back to the original shape to match targets.
         log_outputs = log_outputs.view(B, C, H, W)
+
+        # The KLDivLoss measures how one probability distribution (model output)
+        # is different from a second, reference probability distribution (target).
         kl_loss_val = self.kl_loss(log_outputs, targets)
         
-        outputs_reshaped = F.softmax(inputs_reshaped, dim=1)
+        # --- 2. Calculate L1 Loss ---
+        # Apply softmax to the raw logits to get the model's output as
+        # a probability distribution. This is used for the L1 comparison.
+        outputs_reshaped = F.softmax(inputs.view(B, -1), dim=1)
         outputs_prob = outputs_reshaped.view(B, C, H, W)
+        
+        # The L1 loss compares the predicted probability magnitudes to the target
+        # magnitudes, helping to enforce sparsity and prevent over-smoothing.
         l1_loss_val = self.l1_loss(outputs_prob, targets)
         
+        # --- 3. Combine the Losses ---
+        # The total loss is a weighted sum of the two components. This allows
+        # you to balance the importance of distribution shape vs. magnitude/sparsity.
         total_loss = (self.kl_weight * kl_loss_val) + (self.l1_weight * l1_loss_val)
-
-        # --- 2. Calculate and add multiscale loss components ---
-        if self.downsample_factors and self.downsample_weights:
-            for factor, weight in zip(self.downsample_factors, self.downsample_weights):
-                # Downsample inputs and targets
-                downsampled_inputs = F.avg_pool2d(inputs, kernel_size=factor, stride=factor)
-                downsampled_targets = F.avg_pool2d(targets, kernel_size=factor, stride=factor)
-                
-                # Reshape for softmax
-                B, C, H_ds, W_ds = downsampled_inputs.shape
-                downsampled_inputs_reshaped = downsampled_inputs.view(B, -1)
-
-                # Calculate KL loss at the current scale
-                log_outputs_ds = F.log_softmax(downsampled_inputs_reshaped, dim=1)
-                log_outputs_ds = log_outputs_ds.view(B, C, H_ds, W_ds)
-                kl_loss_ds = self.kl_loss(log_outputs_ds, downsampled_targets)
-                
-                # Calculate L1 loss at the current scale
-                outputs_prob_ds = F.softmax(downsampled_inputs_reshaped, dim=1)
-                outputs_prob_ds = outputs_prob_ds.view(B, C, H_ds, W_ds)
-                l1_loss_ds = self.l1_loss(outputs_prob_ds, downsampled_targets)
-
-                # Add weighted downsampled loss to the total
-                total_loss += weight * ((self.kl_weight * kl_loss_ds) + (self.l1_weight * l1_loss_ds))
 
         return total_loss
     
@@ -453,8 +618,8 @@ class DenoisingModel:
         self.criterion = HybridDenoisingLoss(
             kl_weight=training_params['kl_weight'],
             l1_weight=training_params['l1_weight'],
-            downsample_factors=training_params['downsample_factors'],
-            downsample_weights=training_params['downsample_weights']
+            #downsample_factors=training_params['downsample_factors'],
+            #downsample_weights=training_params['downsample_weights']
         )
 
         self.optimizer = optim.AdamW(self.model.parameters(), 
@@ -550,7 +715,8 @@ def denoise_full_dataset(denoising_model, histograms_mmap, npz_path, original_sh
     print("\nStarting full dataset denoising...")
     M, E, A, e = original_shape
     
-    # Note: 'amplitude_scaling_factor' is assumed to be defined globally or passed as an argument.
+    # The global_max_val parameter is no longer needed since we are working with probabilities.
+    # The data will be used directly from the memory map without any external scaling.
     full_dataset = OnTheFlyNPZDataset(npz_path, histograms_mmap, hu_values, initial_energies, M, E, A, e, 
                                       augment_data=False, amplitude_scaling_factor=amplitude_scaling_factor)
     full_loader = DataLoader(full_dataset, batch_size=batch_size, shuffle=False)
@@ -563,21 +729,34 @@ def denoise_full_dataset(denoising_model, histograms_mmap, npz_path, original_sh
         for inputs, targets, _ in tqdm(full_loader, desc="Denoising batches"):
             inputs = inputs.to(denoising_model.device)
             
-            # Denoise the entire batch at once for maximum efficiency.
-            raw_denoised_batch = denoising_model.model(inputs)
-            
-            # Apply softmax to the raw logits to get a valid probability distribution.
-            B, C, H, W = raw_denoised_batch.shape
-            raw_denoised_reshaped = raw_denoised_batch.view(B, -1)
-            denoised_probs_reshaped = F.softmax(raw_denoised_reshaped, dim=1)
-            denoised_probs = denoised_probs_reshaped.view(B, C, H, W)
-            
-            # Handle the zero-input edge cases
+            # Create an empty tensor to store the final denoised probabilities for this batch
+            denoised_probs = torch.zeros_like(targets)
+
             for i in range(inputs.shape[0]):
+                # Check for the zero-input edge case
                 noisy_slice = inputs[i, 0, :, :]
-                reference_slice = targets[i, 0, :, :].to(denoising_model.device)
-                if torch.sum(noisy_slice) < 1e-12 or torch.sum(reference_slice) < 1e-12:
-                    denoised_probs[i] = torch.zeros_like(denoised_probs[i])
+                target_slice = targets[i, 0, :, :]
+                if torch.sum(noisy_slice) < 1e-12 or torch.sum(target_slice) < 1e-12:
+                    # If the noisy input is all zeros, the denoised output should also be all zeros.
+                    denoised_probs[i] = torch.zeros_like(targets[i])
+                else:
+                    # Get raw logits for this single slice from the model.
+                    # We pass the slice through the model by adding a batch dimension.
+                    raw_denoised_slice = denoising_model.model(inputs[i:i+1])
+                    
+                    # Apply softmax to the raw logits to get a valid probability distribution.
+                    # The model was trained with KLDivLoss, which internally uses log_softmax on the outputs.
+                    # To get a valid probability distribution from the model's raw logits, we must
+                    # apply softmax. This is the inverse of the log_softmax operation used in training.
+                    B, C, H, W = raw_denoised_slice.shape
+                    raw_denoised_reshaped = raw_denoised_slice.view(B, -1)
+                    denoised_probs_reshaped = F.softmax(raw_denoised_reshaped, dim=1)
+                    
+                    # Reshape back to the original dimensions
+                    denoised_probs_slice = denoised_probs_reshaped.view(B, C, H, W)
+                    
+                    # Store the denoised slice in our output tensor
+                    denoised_probs[i] = denoised_probs_slice
             
             # Move the denoised probabilities to the CPU and convert to a NumPy array.
             denoised_outputs_list.append(denoised_probs.cpu().numpy())
@@ -633,7 +812,7 @@ def plot_denoising_results_from_npz(histograms_mmap, denoised_4d, hu_values, ini
         denoised_output_db = 10 * np.log10(denoised_output_np + 1e-12)
         true_clean_db = 10 * np.log10(true_clean_np + 1e-12)
         fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-        fig.suptitle(f'Denoising Example (M: {hu_values[m_idx_to_plot]:.0f} CT, E: {initial_energies[e_idx_to_plot]:.0f} MeV)', fontsize=16)
+        fig.suptitle(f'Denoising Example (M: {hu_values[m_idx_to_plot]:.0f} CT, E: {initial_energies[e_idx_to_plot]:.0f} keV)', fontsize=16)
         im1 = axes[0].imshow(noisy_input_db.T, origin='lower', aspect='auto', cmap='Reds', extent=extent)
         axes[0].set_title('Noisy Input')
         plt.colorbar(im1, ax=axes[0], label='Probability (dB)')
@@ -678,7 +857,7 @@ if __name__ == "__main__":
     # 1. Data Loading and Initial Setup
     method = 'transformation' if args.transformation else 'normalization'
     npz_path = args.npz if args.npz else (
-        './DenoisingDataTransSheet.npz' if method == 'transformation' else './DenoisingDataNormSheet.npz'
+        './DenoisingDataTransSheetSliced.npz' if method == 'transformation' else './DenoisingDataNormSheetSliced.npz'
     )
     
     npz_path, histograms_mmap, num_materials, num_initial_energies, num_angles, num_final_energies, ct_values, initial_energies, method, extra = load_data_and_metadata_from_npz(method=method, npz_path=npz_path)
@@ -709,23 +888,23 @@ if __name__ == "__main__":
     model_params = {
         'in_channels': 5,
         'out_channels': 1,
-        'features_list': [16, 32, 64, 128, 256],
+        'features_list': [8, 16, 32, 64, 128],
     }
     print(f'[INFO] Model Parameters:')
     print(f'\t.In Channels: {model_params["in_channels"]}')
     print(f'\t.Out Channels: {model_params["out_channels"]}')
     print(f'\t.Features List: {model_params["features_list"]}')
     training_params = {
-        'learning_rate': 5e-5,
+        'learning_rate': 1e-5,
         'weight_decay': 1e-5,
         'scheduler_factor': 0.5,
         'scheduler_patience': 5,
-        'early_stopping_patience': 15,
-        'num_epochs': 200,
-        'kl_weight': 1.,  
-        'l1_weight': 4 if method == 'transformation' else 3.,
-        'downsample_factors': [2, 4, 8, 16],
-        'downsample_weights': [0.5, 0.25, 0.1, 0.05],
+        'early_stopping_patience': 10,
+        'num_epochs': 70,
+        'kl_weight': 1.0,
+        'l1_weight': 1000.0,
+        #'downsample_factors': [2, 4, 8, 16],
+        #'downsample_weights': [25.0, 5.8, 1.6, 0.4],
     }
     print(f'[INFO] Training Parameters:')
     print(f'\t.Learning Rate: {training_params["learning_rate"]}')

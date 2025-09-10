@@ -1,3 +1,10 @@
+#!/usr/bin/env python3
+"""
+load_and_report_npz.py
+
+Loads an entire .npz archive into RAM and prints a detailed memory‑usage report.
+"""
+
 import os
 import sys
 import numpy as np
@@ -25,7 +32,7 @@ def main(npz_path: str) -> None:
 
     print(f"\nLoading '{npz_path}' into RAM …")
     npz = np.load(npz_path, allow_pickle=False)          # full load
-
+    
     print(f"\n{len(npz.files)} array(s) in the archive:\n")
     print(f"{'Key':>15} | {'Shape':>20} | {'Dtype':>8} | {'Size'}")
     print("-" * 70)
@@ -57,7 +64,7 @@ def main(npz_path: str) -> None:
 # ------------------------------------------------------------------
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Usage:  python3 load_and_report_npz.py <path/to/archive.npz>")
+        print("Usage:  python3 TestMemory.py <path/to/archive.npz>")
         sys.exit(1)
 
     main(sys.argv[1])
